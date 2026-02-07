@@ -1,0 +1,94 @@
+[
+    {
+        "county": "Artibonite",
+        "districts": [
+            { "name": "Dessalines", "aliases": [] },
+            { "name": "Gonaïves", "aliases": [] },
+            { "name": "Gros Morne", "aliases": [] },
+            { "name": "Marmelade", "aliases": [] },
+            { "name": "Saint Marc", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Centre",
+        "districts": [
+            { "name": "Cerca la Source", "aliases": [] },
+            { "name": "Hinche", "aliases": [] },
+            { "name": "Lascahobas", "aliases": [] },
+            { "name": "Mirebalais", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Grand'Anse",
+        "districts": [
+            { "name": "Anse d'Hainault", "aliases": [] },
+            { "name": "Corail", "aliases": [] },
+            { "name": "Jérémie", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Nippes",
+        "districts": [
+            { "name": "Anse à Veau", "aliases": [] },
+            { "name": "Baradères", "aliases": [] },
+            { "name": "Miragoâne", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Nord",
+        "districts": [
+            { "name": "Acul du Nord", "aliases": [] },
+            { "name": "Borgne", "aliases": [] },
+            { "name": "Cap Haïtien", "aliases": [] },
+            { "name": "Grande Rivière du Nord", "aliases": [] },
+            { "name": "Limbé", "aliases": [] },
+            { "name": "Plaisance", "aliases": [] },
+            { "name": "Saint Raphaël", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Nord Est",
+        "districts": [
+            { "name": "Fort Liberté", "aliases": [] },
+            { "name": "Ouanaminthe", "aliases": [] },
+            { "name": "Trou du Nord", "aliases": [] },
+            { "name": "Vallières", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Nord Ouest",
+        "districts": [
+            { "name": "Môle Saint Nicolas", "aliases": [] },
+            { "name": "Port de Paix", "aliases": [] },
+            { "name": "Saint Louis du Nord", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Ouest",
+        "districts": [
+            { "name": "Arcahaie", "aliases": [] },
+            { "name": "Croix des Bouquets", "aliases": [] },
+            { "name": "Gonâve", "aliases": [], "islet": true },
+            { "name": "Léogâne", "aliases": [] },
+            { "name": "Port au Prince", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Sud Est",
+        "districts": [
+            { "name": "Bainet", "aliases": [] },
+            { "name": "Belle Anse", "aliases": [] },
+            { "name": "Jacmel", "aliases": [] }
+        ]
+    },
+    {
+        "county": "Sud",
+        "districts": [
+            { "name": "Aquin", "aliases": [] },
+            { "name": "Les Cayes", "aliases": [] },
+            { "name": "Chardonnières", "aliases": [] },
+            { "name": "Côteaux", "aliases": [] },
+            { "name": "Port Salut", "aliases": [] }
+        ]
+    }
+]
