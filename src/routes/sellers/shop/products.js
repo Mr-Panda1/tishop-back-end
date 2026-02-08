@@ -306,7 +306,7 @@ router.post('/add-product',
     
 // GET /sellers/shop/products GLOBAL - fetch products with filters
 router.get('/get-products', sellerStoreLimiter, async (req, res) => {
-    const { productId, shopId, category_id, parent_category_id, status, search, limit = 20, offset = 0 } = req.query;
+    const { productId, shopId, category_id, parent_category_id, status, commune_id, search, limit = 20, offset = 0 } = req.query;
 
     try {
         const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
@@ -328,6 +328,22 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
         if (shopId) query = query.eq('shop_id', shopId); 
         if (category_id) query = query.eq('category_id', category_id);
         if (status) query = query.eq('status', status);
+
+        if (commune_id) {
+            const { data: locationRows, error: locationError } = await supabase
+                .from('shop_locations')
+                .select('shop_id')
+                .eq('commune_id', commune_id);
+
+            if (locationError) throw locationError;
+
+            const shopIds = (locationRows || []).map((row) => row.shop_id).filter(Boolean);
+            if (shopIds.length === 0) {
+                return res.json({ products: [] });
+            }
+
+            query = query.in('shop_id', shopIds);
+        }
         
         // Filter by parent category (will include all products in subcategories of this parent)
         if (parent_category_id) {
