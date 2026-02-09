@@ -3,6 +3,7 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const cron = require('node-cron');
 
 // Trust proxy
 app.set('trust proxy', 1); 
@@ -95,6 +96,12 @@ const testSupabase = async () => {
         return false;
     }
 }
+
+// Cron job to keep the server alive (every 5 minutes)
+// TODO: Remove this once in productioon
+cron.schedule('*/5 * * * *', async () => {
+    console.log('Running keep-alive cron job at', new Date().toISOString());
+});
 
 // Start server function
 const startServer = async () => {

@@ -314,7 +314,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
 
         let query = supabase.from('products').select(
             `*,
-            shop:shops(id, name, logo_url, locations:shop_locations(commune_id)),
+            shop:shops(id, name, logo_url,description,created_at, locations:shop_locations(commune_id)),
             images:product_images(image_url, position, is_main),
             variants:product_variants(
                 id, sku, size, size_value, color, attributes, price, stock, is_limited_stock, low_stock_threshold,
