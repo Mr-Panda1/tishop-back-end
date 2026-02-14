@@ -491,10 +491,32 @@ router.patch('/change-shop-status', sellerStoreLimiter, authenticateUser, upload
         return res.status(400).json({message: "Shop not found. Configure your shop first."})
     }
 
+    // Check KYC status for any is_live change request
+    const { data: kycData, error: kycError } = await supabase      
+      .from('kyc_documents')
+      .select('status')
+      .eq('seller_id', sellerRow.id)
+      .maybeSingle();
+      
+    if (kycError) {
+      console.error('Error fetching KYC data for status change:', kycError);
+      return res.status(500).json({ message: 'Error verifying KYC status.' });
+    }
+
+    // Only allow is_live = true if KYC status is approved
+    const hasApprovedKYC = kycData && kycData.status === 'approved';
+    
+    if (is_live && !hasApprovedKYC) {
+      return res.status(400).json({ message: 'KYC approval is required to go live. Please complete KYC verification first.' });
+    }
+
+    // If KYC is not approved, force is_live to false regardless of request
+    const finalLiveStatus = hasApprovedKYC ? is_live : false;
+
     // Update status
     const { error: updateError } = await supabase
     .from('shops')
-    .update({ is_live: is_live })
+    .update({ is_live: finalLiveStatus })
     .eq('id', shopData.id); 
     
     if (updateError) {
@@ -503,8 +525,11 @@ router.patch('/change-shop-status', sellerStoreLimiter, authenticateUser, upload
     }
 
     return res.status(200).json({ 
-      is_live: is_live,
-      message: 'Shop status updated successfully.' });
+      is_live: finalLiveStatus,
+      message: finalLiveStatus !== is_live 
+        ? 'Shop status set to offline due to KYC status.' 
+        : 'Shop status updated successfully.' 
+    });
   } catch (error) {
     console.error("Error changing shop status:", error);
     return res.status(500).json({ message: 'Internal server error' });

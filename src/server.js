@@ -72,6 +72,7 @@ app.use('/api/middleware', require('./middlewares/verifyUser'));
 app.use('/data', require('./routes/country/countryData'));
 app.use('/seller/shop/brand', require('./routes/sellers/shop/shop'));
 app.use('/seller/shop/product', require('./routes/sellers/shop/products'));
+app.use('/seller/kyc', require('./routes/sellers/kyc/kyc'));
 
 // customer
 // app.use('/api/customer/auth', require('./routes/customers/auth/auth'));

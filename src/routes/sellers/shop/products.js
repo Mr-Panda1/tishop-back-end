@@ -6,6 +6,7 @@ const supabase = require('../../../db/supabase');
 const { sellerStoreLimiter } = require('../../../middlewares/limit');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
+const { cp } = require('fs');
 
 const BUCKET_NAME = 'sellers_public';
 const MAX_IMAGES = 3;
@@ -109,7 +110,7 @@ router.post('/add-product',
                 return res.status(400).json({ message: 'Invalid category_id: category not found' });
             }
 
-            // Insert product record (no legacy variant arrays - use `product_variants` table)
+            // Insert product record
             const hasVariantsFlag = !!req.body.variants;
             const { data: productData, error: productInsertError } = await supabase
                 .from('products')
@@ -314,7 +315,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
 
         let query = supabase.from('products').select(
             `*,
-            shop:shops(id, name, logo_url,description,created_at, locations:shop_locations(commune_id)),
+            shop:shops(id, name, logo_url, description, created_at, is_live, locations:shop_locations(commune_id), seller:sellers(kyc_documents(status))),
             images:product_images(image_url, position, is_main),
             variants:product_variants(
                 id, sku, size, size_value, color, attributes, price, stock, is_limited_stock, low_stock_threshold,
@@ -379,7 +380,39 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
 
         if (error) throw error;
 
-        return res.json({ products: data });
+        // Filter to only show products from sellers with approved KYC documents and shops that are live
+        const filteredProducts = data?.filter(product => {
+            // Check if shop is live
+            if (!product.shop?.is_live) {
+                return false; // Exclude products from offline shops
+            }
+
+            // Check for approved KYC documents
+            if (product.shop?.seller?.kyc_documents) {
+                const hasApprovedKYC = product.shop.seller.kyc_documents.some(
+                    doc => doc.status === 'approved'
+                );
+                return hasApprovedKYC;
+            }
+            return false; // Exclude products without seller/kyc_documents info
+        }).map(product => {
+            // Keep only approved kyc_documents in the response
+            const approvedDocs = product.shop.seller.kyc_documents.filter(
+                doc => doc.status === 'approved'
+            );
+            return {
+                ...product,
+                shop: {
+                    ...product.shop,
+                    seller: {
+                        ...product.shop.seller,
+                        kyc_documents: approvedDocs
+                    }
+                }
+            };
+        });
+
+        return res.json({ products: filteredProducts || [] });
     } catch (error) {
         console.error('Error fetching products:', error);
         return res.status(500).json({ message: 'Internal server error' });

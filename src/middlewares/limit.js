@@ -21,11 +21,24 @@ const sellerStoreLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req, res) => {
-        return res.status(429).json({ message: 'Too many requests from this IP, please try again after a minute from' }); 
+        return res.status(429).json({ message: 'Too many requests from this IP, please try again after 5 minutes' }); 
+    }
+})
+
+// Rate limiter for kyc routes 
+const sellerKYCLimiter = rateLimit({
+    windowMs: 1440 * 60 * 1000, // 24 hours
+    max: 5, // Ip max 3 requests per windowMs
+    message: 'Too many requests from this IP, please try again after a day',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        return res.status(429).json({ message: 'Too many requests from this IP, please try again after a day' }); 
     }
 })
 
 module.exports = {
     authLimiter,
     sellerStoreLimiter,
+    sellerKYCLimiter,
 }
