@@ -23,16 +23,11 @@ router.put('/update-shop',
     async (req, res) => {
         try {
             const user = req.user;
-            const { name, description, color } = req.body;
+            const { name, description } = req.body;
 
             // Validate required fields
             if (!name?.trim() || !description?.trim()) {
                 return res.status(400).json({ message: 'Name and description are required' });
-            }
-
-            // Validate color format (optional field)
-            if (color && !/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color)) {
-                return res.status(400).json({ message: 'Invalid color format. Use hex color code (e.g., #FF5733)' });
             }
 
             // Ensure seller exists in sellers table
@@ -149,7 +144,6 @@ router.put('/update-shop',
             const shopData = {
                 name: name.trim(),
                 description: description.trim(),
-                color: color || null,
                 logo_url: logoPublicUrl,
                 banner_url: bannerPublicUrl,
                 updated_at: new Date().toISOString(),

@@ -73,11 +73,14 @@ app.use('/data', require('./routes/country/countryData'));
 app.use('/seller/shop/brand', require('./routes/sellers/shop/shop'));
 app.use('/seller/shop/product', require('./routes/sellers/shop/products'));
 app.use('/seller/kyc', require('./routes/sellers/kyc/kyc'));
+app.use('/seller/orders', require('./routes/sellers/orders'));
+app.use('/api/payments', require('./routes/payments/payments'));
 
 // customer
 // app.use('/api/customer/auth', require('./routes/customers/auth/auth'));
 app.use('/customer/shop/category', require('./routes/customers/category'));
 // app.use('/customer/shop/product', require('./routes/customers/products'));
+app.use('/customer/orders', require('./routes/customers/orders'));
 
 // Verify supabase connection
 const supabase = require('./db/supabase');

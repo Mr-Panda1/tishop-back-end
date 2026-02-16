@@ -3,7 +3,7 @@ const router = express.Router();
 const departmentData = require('../../../country_data/departments.json');
 const arrondissementData = require('../../../country_data/arrondissements.json')
 const communeData = require('../../../country_data/communes.json')
-const sectionData = require('../../../country_data/sections.json')
+const supabase = require('../../db/supabase')
 
 // GET /department from country_data folder json
 router.get('/departments', (req, res) => {
@@ -59,21 +59,50 @@ router.get('/departments/:department/arrondissements/:arrondissement/communes', 
     res.json({ communes});
 })
 
-// GET 
-router.get('/departments/:department/arrondissements/:arrondissement/communes/:commune/section', (req, res) => {
-    const { commune } = req.params;
+// GET /delivery-fee?commune=COMMUNE_NAME - returns dynamic delivery fee based on commune
+router.get('/delivery-fee', async (req, res) => {
+    try {
+        const { commune } = req.query;
 
-    const match = sectionData.find(
-        item => item.municipality.toLowerCase() === commune.toLowerCase()
-    );
+        if (!commune) {
+            return res.status(400).json({
+                message: "Commune parameter is required"
+            });
+        }
 
-    if (!match) {
-        return res.status(404).json({ message: 'Commune not found'})
+        // Find the minimum delivery fee for this commune from active delivery options
+        const { data: deliveryOptions, error } = await supabase
+            .from('delivery_options')
+            .select('price')
+            .eq('commune_id', commune)
+            .eq('is_active', true)
+            .order('price', { ascending: true })
+            .limit(1);
+
+        if (error) {
+            console.error('Error fetching delivery options:', error);
+            return res.status(500).json({
+                message: "Failed to fetch delivery fee"
+            });
+        }
+
+        // Use the minimum price if available, otherwise default to 200
+        const deliveryFee = deliveryOptions && deliveryOptions.length > 0 ? parseFloat(deliveryOptions[0].price) : 200;
+
+        res.status(200).json({
+            message: "OK",
+            data: {
+                commune,
+                fee: deliveryFee,
+                found: true
+            }
+        });
+    } catch (error) {
+        console.error("Error fetching delivery fee:", error);
+        res.status(500).json({
+            message: "Failed to fetch delivery fee"
+        });
     }
-
-    const communes = match.submunicipalities.map( s => s.name);
-
-    res.json({ communes});
-})
+});
 
 module.exports = router;
