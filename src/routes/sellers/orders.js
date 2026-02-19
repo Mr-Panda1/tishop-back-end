@@ -1,21 +1,10 @@
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
 const authenticateUser = require('../../middlewares/authMiddleware');
 const supabase = require('../../db/supabase');
 const { sellerStoreLimiter } = require('../../middlewares/limit');
 
-const hashCode = (code, orderId) => {
-    return crypto
-        .createHash('sha256')
-        .update(`${orderId}:${code}`)
-        .digest('hex');
-};
-
-const verifyCodeMatch = (inputCode, storedHash, orderId) => {
-    const inputHash = hashCode(inputCode, orderId);
-    return inputHash === storedHash;
-};
+const verifyCodeMatch = (inputCode, storedCode) => inputCode === storedCode;
 
 // GET seller's orders
 router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
@@ -63,7 +52,7 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
         if (sellerOrderIds.length > 0) {
             const { data: orders, error: ordersError } = await supabase
                 .from('orders')
-                .select('id, order_number, customer_name, customer_email, customer_phone, total_amount, status, created_at')
+                .select('id, order_number, customer_name, customer_email, customer_phone, total_amount, status, created_at, department_id, arrondissement_id, commune_id, neighborhood, landmark')
                 .in('id', (sellerOrders || []).map(so => so.order_id));
 
             if (ordersError) {
@@ -77,7 +66,7 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
 
             const { data: items, error: itemsError } = await supabase
                 .from('order_items')
-                .select('id, seller_order_id, product_id, quantity, unit_price, total_price')
+                .select('id, seller_order_id, product_id, product_variant_id, quantity, unit_price, total_price')
                 .in('seller_order_id', sellerOrderIds);
 
             if (itemsError) {
@@ -175,7 +164,7 @@ router.get('/:sellerOrderId', authenticateUser, async (req, res) => {
 
         const { data: items, error: itemsError } = await supabase
             .from('order_items')
-            .select('*')
+            .select('id, order_id, seller_order_id, product_id, product_variant_id, quantity, unit_price, total_price')
             .eq('seller_order_id', sellerOrderId);
 
         if (itemsError) {
@@ -353,7 +342,7 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
             return res.status(400).json({ message: 'No delivery code found for this order' });
         }
 
-        const codeMatch = verifyCodeMatch(code, sellerOrder.delivery_code_full, sellerOrder.order_id);
+        const codeMatch = verifyCodeMatch(code, sellerOrder.delivery_code_full);
 
         if (!codeMatch) {
             await supabase

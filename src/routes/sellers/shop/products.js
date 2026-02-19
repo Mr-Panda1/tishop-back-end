@@ -888,6 +888,120 @@ router.patch('/update-seller-products/:id',
 
 // DELETE /sellers/shop/products
 // TODO: DELETE PRODUCT - complete the implementation later
+router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimiter, async (req, res) => {
+    try {
+        const user = req.user;
+        const productId = req.params.id;
+
+        // Verify seller owns this product
+        const { data: sellerRow, error: sellerFetchError } = await supabase
+            .from('sellers')
+            .select('id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+        if (sellerFetchError || !sellerRow) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        // Fetch product and verify ownership
+        const { data: productData, error: productFetchError } = await supabase
+            .from('products')
+            .select('*, shop:shops(id, seller_id)')
+            .eq('id', productId)
+            .maybeSingle();
+        
+            if (productFetchError || !productData) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        if (productData.shop.seller_id !== sellerRow.id) {
+            return res.status(403).json({ message: 'Forbidden: You do not own this product' });
+        }
+
+        // Check if product has any orders
+        const { data: orderItems, error: orderCheckError } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('product_id', productId)
+            .limit(1);
+
+        if (orderCheckError) {
+            console.error('Error checking orders:', orderCheckError);
+            return res.status(500).json({ message: 'Error checking product orders' });
+        }
+
+        if (orderItems && orderItems.length > 0) {
+            return res.status(400).json({ 
+                message: 'Cannot delete product with existing orders. Consider marking it as draft instead.',
+                hasOrders: true,
+                canDeactivate: true
+            });
+        }
+
+        // get and delete variant images
+        const { data: variantImages } = await supabase
+            .from('product_variant_images')
+            .select('id, image_url, variant:product_variants!inner(product_id)')
+            .eq('product_id', productId);
+
+            if (variantImages && variantImages.length > 0) {
+                for (const img of variantImages) {
+                    const urlParts = img.image_url.split('/');
+                    if (urlParts.length >= 2) {
+                        const filePath = urlParts.slice(-4).join('/');
+                        await supabase.storage.from(BUCKET_NAME).remove([filePath]);
+                    }
+                }
+
+                const imgIds = variantImages.map(img => img.id);
+                await supabase
+                    .from('product_variant_images')
+                    .delete()
+                    .in('id', imgIds);
+            }
+
+            // delete variants
+            await supabase.from('product_variants').delete().eq('product_id', productId);
+
+            // get and delete product images
+            const { data: productImages } = await supabase
+                .from('product_images')
+                .select('id, image_url')
+                .eq('product_id', productId);
+
+            if (productImages && productImages.length > 0) {
+                for (const img of productImages) {
+                    const urlParts = img.image_url.split('/');
+                    if (urlParts.length >= 2) {
+                        const filePath = urlParts.slice(-4).join('/');
+                        await supabase.storage.from(BUCKET_NAME).remove([filePath]);
+                    }
+                }
+
+                const imgIds = productImages.map(img => img.id);
+                await supabase
+                    .from('product_images')
+                    .delete()
+                    .in('id', imgIds);
+            }
+
+            // delete product
+            const { error: productDeleteError } = await supabase
+                .from('products')
+                .delete()
+                .eq('id', productId);
+
+            if (productDeleteError) {
+                console.error('Error deleting product:', productDeleteError);
+                return res.status(500).json({ message: 'Error deleting product' });
+            }
+
+            return res.json({ message: 'Product deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting product:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+})
 
 
 // Fetch product categories

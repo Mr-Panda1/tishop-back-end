@@ -3,7 +3,6 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const cron = require('node-cron');
 
 // Trust proxy
 app.set('trust proxy', 1); 
@@ -34,7 +33,9 @@ const allowedOrigins = [
     'http://192.168.1.66:8000',
     'http://192.168.1.66:3001',
     'https://tishop.co',
-    'https://www.tishop.co'
+    'https://www.tishop.co',
+    'https://seller.tishop.co',
+    'https://www.seller.tishop.co'
 ];
 
 app.use(cors({
@@ -74,6 +75,7 @@ app.use('/seller/shop/brand', require('./routes/sellers/shop/shop'));
 app.use('/seller/shop/product', require('./routes/sellers/shop/products'));
 app.use('/seller/kyc', require('./routes/sellers/kyc/kyc'));
 app.use('/seller/orders', require('./routes/sellers/orders'));
+app.use('/seller', require('./routes/sellers/payout/payouts'));
 app.use('/api/payments', require('./routes/payments/payments'));
 
 // customer
@@ -100,12 +102,6 @@ const testSupabase = async () => {
         return false;
     }
 }
-
-// Cron job to keep the server alive (every 5 minutes)
-// TODO: Remove this once in productioon
-cron.schedule('*/5 * * * *', async () => {
-    console.log('Running keep-alive cron job at', new Date().toISOString());
-});
 
 // Start server function
 const startServer = async () => {
