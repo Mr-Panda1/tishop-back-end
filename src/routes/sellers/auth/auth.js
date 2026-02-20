@@ -2,6 +2,7 @@ const express = require('express')
 const supabase = require('../../../db/supabase');
 const router = express.Router();
 const { authLimiter } = require('../../../middlewares/limit');
+const crypto = require('crypto');
 
 // Seller login route 
 // POST /api/seller/login
@@ -71,6 +72,12 @@ router.post('/seller/login', authLimiter, async (req, res) => {
     }
 })
 
+const generateRandomName = (length = 8) => {
+    return Array.from(crypto.getRandomValues(new Uint8Array(length)))
+    .map(b => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62])
+    .join('');
+}
+
 // Seller sign up route
 // POST /api/seller/signup
 router.post('/seller/signup', authLimiter, async (req, res) => {
@@ -89,7 +96,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         .eq('email', email)
         .single();
         if (existingUser && !existingUserError) {
-            return res.status(409).json({ message: 'Invalid credentials.' }); //TODO: Change message later
+            return res.status(409).json({ message: 'Invalid credentials.' });
         }
 
         // Create new user
@@ -118,6 +125,46 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
 
         if (userError) {
             console.log("Error inserting user details:", userError.message);
+            return res.status(500).json({ message: 'Error creating user.' });
+        }
+
+        // Add the user to sellers, shops, and balances tables
+        const { data: sellerData, error: sellerError } = await supabase
+        .from('sellers')
+        .insert({ 
+            user_id: data.user.id,
+            first_name,
+            last_name,
+            email,
+          })
+        .select('id')
+        .single();
+
+        if (sellerError) {
+            console.log("Error inserting into sellers table:", sellerError.message);
+            return res.status(500).json({ message: 'Error creating user.' });
+        }
+        const { error: shopError } = await supabase
+        .from('shops')
+        .insert({ 
+            seller_id: sellerData.id,
+            is_live: false,
+            name: `${generateRandomName()}'s shop`,
+        })
+        .select()
+        .single();
+        if (shopError) {
+            console.log("Error inserting into shops table:", shopError.message);
+            return res.status(500).json({ message: 'Error creating user.' });
+        }
+        const { error: balanceError } = await supabase
+        .from('balances')
+        .insert({ seller_id: sellerData.id })
+        .select()
+        .single();
+
+        if (balanceError) {
+            console.log("Error inserting into balances table:", balanceError.message);
             return res.status(500).json({ message: 'Error creating user.' });
         }
 
