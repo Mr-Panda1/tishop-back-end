@@ -25,7 +25,6 @@ app.use(cookieParser());
 
 // CORS configuration
 const allowedOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:3000',
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:8000',
@@ -35,7 +34,6 @@ const allowedOrigins = [
     'https://tishop.co',
     'https://www.tishop.co',
     'https://seller.tishop.co',
-    'https://www.seller.tishop.co'
 ];
 
 app.use(cors({

@@ -43,19 +43,21 @@ router.post('/seller/login', authLimiter, async (req, res) => {
 
         res.cookie('access_token', data.session.access_token, {
             httpOnly: true,
-            secure: true, // Always true for cookies to be sent in cross-site requests
-            sameSite: 'none', // Required for cross-site cookies
+            secure: true,
+            sameSite: 'none',
             maxAge: data.session.expires_in * 1000,
-            path: '/'
+            path: '/',
+            domain: '.tishop.co'
         })
         
         if (data.session.refresh_token) {
             res.cookie("refresh_token", data.session.refresh_token, {
                 httpOnly: true,
-                secure: true, // Always true for cookies to be sent in cross-site requests
-                sameSite: 'none', // Required for cross-site cookies
+                secure: true,
+                sameSite: 'none',
                 maxAge: 7 * 24 * 3600000,
-                path: '/'
+                path: '/',
+                domain: '.tishop.co',
             });
         }
         const response = {
