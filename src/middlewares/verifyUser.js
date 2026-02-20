@@ -15,21 +15,46 @@ router.get('/verify-user', async (req, res) => {
             return res.status(401).json({ authenticated: false });
         }
 
-        // fetch role 
+        // fetch role from users table
         const { data: profile, error: profileError } = await 
         supabase
         .from('users')
         .select('role, first_name, last_name, is_active')
         .eq('id', user.id)
-        .single();
+        .maybeSingle(); // Changed from .single() to handle missing user gracefully
 
-        if (profileError || !profile) {
+        if (profileError) {
+            console.error('Profile query error:', profileError.message);
             return res.status(500).json({ authenticated: false });
+        }
+
+        if (!profile) {
+            // User exists in auth but not in users table - create default entry
+            console.warn(`User ${user.id} not found in users table, creating entry...`);
+            const { error: insertError } = await supabase
+                .from('users')
+                .insert([{ id: user.id, email: user.email, role: 'seller' }])
+                .select()
+                .single();
+            
+            if (insertError) {
+                console.error('Error creating user entry:', insertError.message);
+                return res.status(500).json({ authenticated: false });
+            }
+
+            return res.status(200).json({
+                authenticated: true,
+                user: { id: user.id, email: user.email },
+                role: 'seller',
+                first_name: null,
+                last_name: null,
+                is_active: true,
+            });
         }
 
         return res.status(200).json({
             authenticated: true,
-            user: {id: user.id, email: user.email },
+            user: { id: user.id, email: user.email },
             role: profile.role,
             first_name: profile.first_name,
             last_name: profile.last_name,
