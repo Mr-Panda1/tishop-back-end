@@ -95,7 +95,7 @@ app.use('/customer/shop/category', require('./routes/customers/category'));
 app.use('/customer/orders', require('./routes/customers/orders'));
 
 // Verify supabase connection
-const supabase = require('./db/supabase');
+const { supabase } = require('./db/supabase');
 const testSupabase = async () => {
     try {
         console.log('Testing supabase connection...');
