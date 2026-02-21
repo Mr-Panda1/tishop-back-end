@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authenticateUser = require('../../../middlewares/authMiddleware');
-const supabase = require('../../../db/supabase');
+const { supabase } = require('../../../db/supabase');
 const { sellerStoreLimiter } = require('../../../middlewares/limit');
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../../db/supabase');
+const { supabase } = require('../../db/supabase');
 
 const buildOrderNumber = () => {
     const now = new Date();

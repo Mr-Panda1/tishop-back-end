@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authenticateUser = require('../../../middlewares/authMiddleware');
-const supabase = require('../../../db/supabase');
+const { supabase } = require('../../../db/supabase');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const { sellerKYCLimiter } = require('../../../middlewares/limit');

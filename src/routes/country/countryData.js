@@ -3,7 +3,7 @@ const router = express.Router();
 const departmentData = require('../../../country_data/departments.json');
 const arrondissementData = require('../../../country_data/arrondissements.json')
 const communeData = require('../../../country_data/communes.json')
-const supabase = require('../../db/supabase')
+const { supabase } = require('../../db/supabase')
 
 // GET /department from country_data folder json
 router.get('/departments', (req, res) => {

@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
-const supabase = require('../../db/supabase');
+const { supabase } = require('../../db/supabase');
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 

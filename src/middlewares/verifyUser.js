@@ -1,5 +1,5 @@
 const express = require('express');
-const supabase = require('../db/supabase');
+const { supabase } = require('../db/supabase');
 const router = express.Router();
 
 router.get('/verify-user', async (req, res) => {

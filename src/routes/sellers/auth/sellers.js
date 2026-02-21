@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../../../db/supabase');
+const { supabase } = require('../../../db/supabase');
 
 // Seller registration
 // function to verify seller role and if it is seller then create a seller profile for them 
