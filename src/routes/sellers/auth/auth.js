@@ -2,6 +2,7 @@ const express = require('express')
 const { supabase, supabaseAdmin } = require('../../../db/supabase');
 const router = express.Router();
 const { authLimiter } = require('../../../middlewares/limit');
+const { sendWelcomeEmail } = require('../../../email/seller/welcomeEmail');
 const crypto = require('crypto');
 
 // Seller login route 
@@ -178,6 +179,14 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         if (balanceError) {
             console.log("Error inserting into balances table:", balanceError.message);
             return res.status(500).json({ message: 'Error creating user.' });
+        }
+
+        // Send welcome email
+        try {
+            await sendWelcomeEmail(email, `${first_name} ${last_name}`);
+            console.log("Welcome email sent to:", email);
+        } catch (emailError) {
+            console.log("Warning: Failed to send welcome email:", emailError.message);
         }
 
         const response = {
