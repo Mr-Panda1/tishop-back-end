@@ -63,6 +63,8 @@ router.post('/seller/login', authLimiter, async (req, res) => {
         const response = {
             message: "Login successfully",
             user: data.user,
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token
         }
 
         return res.status(200).json(response);
