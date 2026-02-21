@@ -51,14 +51,26 @@ app.use(cors({
 }));
 
 // Health check route
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+app.get('/health', async (req, res) => {
+    let databaseStatus = 'down';
+    try {
+        const { error } = await supabase.from('users').select('id').limit(1);
+        if (!error) {
+            databaseStatus = 'up';
+        } else {
+            console.error('Health check DB error:', error);
+        }
+    } catch (error) {
+        console.error('Health check DB exception:', error);
+    }
+
+    res.status(databaseStatus === 'up' ? 200 : 503).json({ 
+        status: databaseStatus === 'up' ? 'ok' : 'degraded', 
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         version: '1.0.0',
         services: {
-            database: 'up'
+            database: databaseStatus
         }
     });
 });
