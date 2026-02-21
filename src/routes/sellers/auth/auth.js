@@ -1,5 +1,5 @@
 const express = require('express')
-const supabase = require('../../../db/supabase');
+const { supabase, supabaseAdmin } = require('../../../db/supabase');
 const router = express.Router();
 const { authLimiter } = require('../../../middlewares/limit');
 const crypto = require('crypto');
@@ -96,7 +96,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         }
 
         // See if email already exists
-        const { data: existingUser, error: existingUserError } = await supabase
+        const { data: existingUser, error: existingUserError } = await supabaseAdmin
         .from('users')
         .select('email')
         .eq('email', email)
@@ -122,7 +122,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         }
 
         // Insert seller details into 'users' table 
-        const { error: userError } = await supabase
+        const { error: userError } = await supabaseAdmin
         .from('users')
         .insert([
             { 
@@ -141,7 +141,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         }
 
         // Add the user to sellers, shops, and balances tables
-        const { data: sellerData, error: sellerError } = await supabase
+        const { data: sellerData, error: sellerError } = await supabaseAdmin
         .from('sellers')
         .insert({ 
             user_id: data.user.id,
@@ -156,7 +156,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
             console.log("Error inserting into sellers table:", sellerError.message);
             return res.status(500).json({ message: 'Error creating user.' });
         }
-        const { error: shopError } = await supabase
+        const { error: shopError } = await supabaseAdmin
         .from('shops')
         .insert({ 
             seller_id: sellerData.id,
@@ -169,7 +169,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
             console.log("Error inserting into shops table:", shopError.message);
             return res.status(500).json({ message: 'Error creating user.' });
         }
-        const { error: balanceError } = await supabase
+        const { error: balanceError } = await supabaseAdmin
         .from('balances')
         .insert({ seller_id: sellerData.id })
         .select()

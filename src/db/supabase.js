@@ -6,4 +6,12 @@ const supabase = supabaseClient.createClient(
     env.supabaseSecret
 )
 
-module.exports = supabase;
+const supabaseAdmin = supabaseClient.createClient(
+    env.supabaseUrl,
+    env.supabaseServiceRoleKey
+)
+
+module.exports = {
+    supabase,
+    supabaseAdmin,
+};
