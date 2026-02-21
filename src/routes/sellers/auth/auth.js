@@ -77,9 +77,11 @@ router.post('/seller/login', authLimiter, async (req, res) => {
 })
 
 const generateRandomName = (length = 8) => {
-    return Array.from(crypto.getRandomValues(new Uint8Array(length)))
-    .map(b => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[b % 62])
-    .join('');
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = crypto.randomBytes(length);
+    return Array.from(bytes)
+        .map((b) => charset[b % charset.length])
+        .join('');
 }
 
 // Seller sign up route
@@ -110,6 +112,12 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         })
         
         if (error) {
+            console.log("Sign up error:", error.message);
+            return res.status(400).json({ message: 'Error creating user.' });
+        }
+
+        if (!data?.user?.id) {
+            console.log("Sign up error: missing user id");
             return res.status(400).json({ message: 'Error creating user.' });
         }
 
