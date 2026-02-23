@@ -18,10 +18,25 @@ app.use((req, res, next) => {
     next();
 });
 
-// Body parser
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Body parser with increased limits for mobile browsers
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+// Debug middleware for request body (helps diagnose mobile browser issues)
+app.use((req, res, next) => {
+    if (req.method === 'POST' && req.path.includes('signup')) {
+        console.log('Signup request received:', {
+            method: req.method,
+            path: req.path,
+            contentType: req.get('Content-Type'),
+            bodyExists: !!req.body,
+            bodyKeys: req.body ? Object.keys(req.body) : [],
+            userAgent: req.get('User-Agent')
+        });
+    }
+    next();
+});
 
 // CORS configuration
 const allowedOrigins = [
@@ -46,8 +61,11 @@ app.use(cors({
         }
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Set-Cookie'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
 }));
 
 // Health check route

@@ -89,23 +89,55 @@ const generateRandomName = (length = 8) => {
 // POST /api/seller/signup
 router.post('/seller/signup', authLimiter, async (req, res) => {
     try {
+        console.log('=== SIGNUP REQUEST START ===');
+        console.log('Request body received:', {
+            hasBody: !!req.body,
+            bodyType: typeof req.body,
+            keys: req.body ? Object.keys(req.body) : [],
+            contentType: req.get('Content-Type'),
+            userAgent: req.get('User-Agent')
+        });
+
         const { first_name, last_name, email, password } = req.body || {};
+
+        console.log('Parsed fields:', {
+            hasFirstName: !!first_name,
+            hasLastName: !!last_name,
+            hasEmail: !!email,
+            hasPassword: !!password,
+            firstNameType: typeof first_name,
+            lastNameType: typeof last_name,
+            emailType: typeof email
+        });
 
         // Verify if inputs are provided
         if (!first_name || !last_name || !email || !password) {
-            return res.status(400).json({ message: 'All fields are required.' });
+            console.log('VALIDATION FAILED: Missing required fields');
+            return res.status(400).json({ 
+                message: 'All fields are required.',
+                missing: {
+                    first_name: !first_name,
+                    last_name: !last_name,
+                    email: !email,
+                    password: !password
+                }
+            });
         }
 
+        console.log('Step 1: Checking for existing email...');
         // See if email already exists
         const { data: existingUser, error: existingUserError } = await supabaseAdmin
         .from('users')
         .select('email')
         .eq('email', email)
         .single();
+        
         if (existingUser && !existingUserError) {
+            console.log('CONFLICT: Email already exists');
             return res.status(409).json({ message: 'Invalid credentials.' });
         }
 
+        console.log('Step 2: Creating auth user...');
         // Create new user
         const { data, error } = await supabase.auth.signUp({
             email,
@@ -113,15 +145,24 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         })
         
         if (error) {
-            console.log("Sign up error:", error.message);
-            return res.status(400).json({ message: 'Error creating user.' });
+            console.error("SUPABASE AUTH ERROR:", {
+                message: error.message,
+                status: error.status,
+                name: error.name
+            });
+            return res.status(400).json({ 
+                message: 'Error creating user account.',
+                details: process.env.NODE_ENV === 'development' ? error.message : undefined
+            });
         }
 
         if (!data?.user?.id) {
-            console.log("Sign up error: missing user id");
-            return res.status(400).json({ message: 'Error creating user.' });
+            console.error("AUTH USER MISSING: No user ID returned");
+            return res.status(400).json({ message: 'Error creating user account - no user ID.' });
         }
 
+        console.log('Step 3: Auth user created, ID:', data.user.id);
+        console.log('Step 4: Inserting into users table...');
         // Insert seller details into 'users' table 
         const { error: userError } = await supabaseAdmin
         .from('users')
@@ -137,10 +178,18 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         .single();
 
         if (userError) {
-            console.log("Error inserting user details:", userError.message);
-            return res.status(500).json({ message: 'Error creating user.' });
+            console.error("USERS TABLE ERROR:", {
+                message: userError.message,
+                code: userError.code,
+                details: userError.details
+            });
+            return res.status(500).json({ 
+                message: 'Error saving user details.',
+                details: process.env.NODE_ENV === 'development' ? userError.message : undefined
+            });
         }
 
+        console.log('Step 5: Inserting into sellers table...');
         // Add the user to sellers, shops, and balances tables
         const { data: sellerData, error: sellerError } = await supabaseAdmin
         .from('sellers')
@@ -154,9 +203,19 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         .single();
 
         if (sellerError) {
-            console.log("Error inserting into sellers table:", sellerError.message);
-            return res.status(500).json({ message: 'Error creating user.' });
+            console.error("SELLERS TABLE ERROR:", {
+                message: sellerError.message,
+                code: sellerError.code,
+                details: sellerError.details
+            });
+            return res.status(500).json({ 
+                message: 'Error creating seller profile.',
+                details: process.env.NODE_ENV === 'development' ? sellerError.message : undefined
+            });
         }
+
+        console.log('Step 6: Seller created, ID:', sellerData.id);
+        console.log('Step 7: Creating shop...');
         const { error: shopError } = await supabaseAdmin
         .from('shops')
         .insert({ 
@@ -166,10 +225,20 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         })
         .select()
         .single();
+        
         if (shopError) {
-            console.log("Error inserting into shops table:", shopError.message);
-            return res.status(500).json({ message: 'Error creating user.' });
+            console.error("SHOPS TABLE ERROR:", {
+                message: shopError.message,
+                code: shopError.code,
+                details: shopError.details
+            });
+            return res.status(500).json({ 
+                message: 'Error creating shop.',
+                details: process.env.NODE_ENV === 'development' ? shopError.message : undefined
+            });
         }
+
+        console.log('Step 8: Creating balance record...');
         const { error: balanceError } = await supabaseAdmin
         .from('balances')
         .insert({ seller_id: sellerData.id })
@@ -177,11 +246,19 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         .single();
 
         if (balanceError) {
-            console.log("Error inserting into balances table:", balanceError.message);
-            return res.status(500).json({ message: 'Error creating user.' });
+            console.error("BALANCES TABLE ERROR:", {
+                message: balanceError.message,
+                code: balanceError.code,
+                details: balanceError.details
+            });
+            return res.status(500).json({ 
+                message: 'Error creating balance account.',
+                details: process.env.NODE_ENV === 'development' ? balanceError.message : undefined
+            });
         }
 
         // Send welcome email
+        console.log('Step 9: Sending welcome email...');
         try {
             await sendWelcomeEmail(email, `${first_name} ${last_name}`);
             console.log("Welcome email sent to:", email);
@@ -189,6 +266,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
             console.log("Warning: Failed to send welcome email:", emailError.message);
         }
 
+        console.log('=== SIGNUP SUCCESS ===');
         const response = {
             message: "User created successfully. Please verify your email before logging in.",
             user: data.user,
@@ -196,8 +274,13 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
 
         return res.status(201).json(response);
     } catch (error) {
-        console.log("Sign up request error:", error.message);
-        return res.status(500).json({ message: 'Internal server error.', details: error.message });
+        console.error("=== SIGNUP FATAL ERROR ===");
+        console.error("Error stack:", error.stack);
+        console.error("Error message:", error.message);
+        return res.status(500).json({ 
+            message: 'Internal server error.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 })
 
