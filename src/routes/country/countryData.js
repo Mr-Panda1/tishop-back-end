@@ -4,9 +4,10 @@ const departmentData = require('../../../country_data/departments.json');
 const arrondissementData = require('../../../country_data/arrondissements.json')
 const communeData = require('../../../country_data/communes.json')
 const { supabase } = require('../../db/supabase')
+const { generalLimiter } = require('../../middlewares/limit')
 
 // GET /department from country_data folder json
-router.get('/departments', (req, res) => {
+router.get('/departments', generalLimiter, (req, res) => {
     try {
         const departments = departmentData.map(d => d.name);
         res.status(200).json({ departments });
@@ -18,7 +19,7 @@ router.get('/departments', (req, res) => {
 
 
 // GET /department/:department_name?/arrondissement from country_data folder json
-router.get('/departments/:department/arrondissements', (req, res) => {
+router.get('/departments/:department/arrondissements', generalLimiter, (req, res) => {
     try {
         const { department } = req.params;
 
@@ -43,7 +44,7 @@ router.get('/departments/:department/arrondissements', (req, res) => {
 })
 
 // GET /department/:department_name?/arrondissement/:arrondissement?/communes
-router.get('/departments/:department/arrondissements/:arrondissement/communes', (req, res) => {
+router.get('/departments/:department/arrondissements/:arrondissement/communes', generalLimiter, (req, res) => {
     const { arrondissement } = req.params;
 
     const match = communeData.find(
@@ -60,7 +61,7 @@ router.get('/departments/:department/arrondissements/:arrondissement/communes', 
 })
 
 // GET /delivery-fee?commune=COMMUNE_NAME - returns dynamic delivery fee based on commune
-router.get('/delivery-fee', async (req, res) => {
+router.get('/delivery-fee', generalLimiter, async (req, res) => {
     try {
         const { commune } = req.query;
 

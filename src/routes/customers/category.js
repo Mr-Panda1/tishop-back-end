@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../../db/supabase');
-const { sellerStoreLimiter } = require('../../middlewares/limit');
+const { generalLimiter } = require('../../middlewares/limit');
 
 // Fetch all categories with products
-router.get('/categories-with-products', async (req, res) => {
+router.get('/categories-with-products', generalLimiter, async (req, res) => {
     try {
         // Fetch all parent categories
         const { data: parentCategories, error: parentError } = await supabase

@@ -2,12 +2,13 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const { supabase } = require('../../db/supabase');
+const { generalLimiter } = require('../../middlewares/limit');
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 
 // Mark order as paid and generate delivery codes
-router.post('/mark-paid', async (req, res) => {
+router.post('/mark-paid', generalLimiter, async (req, res) => {
     try {
         const { orderId, returnCodes = false } = req.body;
 

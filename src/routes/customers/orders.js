@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../../db/supabase');
+const { generalLimiter } = require('../../middlewares/limit');
 
 const buildOrderNumber = () => {
     const now = new Date();
@@ -10,7 +11,7 @@ const buildOrderNumber = () => {
 };
 
 // Customer place an order
-router.post('/create-order', async (req, res) => {
+router.post('/create-order', generalLimiter, async (req, res) => {
     try {
         const {
             customerName,
@@ -274,7 +275,7 @@ router.post('/create-order', async (req, res) => {
 });
 
 // GET customer orders by email
-router.get('/', async (req, res) => {
+router.get('/', generalLimiter, async (req, res) => {
     try {
         const { email } = req.query;
 
@@ -463,7 +464,7 @@ router.get('/', async (req, res) => {
 });
 
 // GET single order by ID
-router.get('/:orderId', async (req, res) => {
+router.get('/:orderId', generalLimiter, async (req, res) => {
     try {
         const { orderId } = req.params;
 
