@@ -44,21 +44,21 @@ router.post('/seller/login', authLimiter, async (req, res) => {
 
         res.cookie('access_token', data.session.access_token, {
             httpOnly: true,
-            secure: true,
-            sameSite: 'none',
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
             maxAge: data.session.expires_in * 1000,
             path: '/',
-            domain: '.tishop.co'
+            ...(process.env.NODE_ENV === 'production' && { domain: '.tishop.co' })
         })
         
         if (data.session.refresh_token) {
             res.cookie("refresh_token", data.session.refresh_token, {
                 httpOnly: true,
-                secure: true,
-                sameSite: 'none',
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
                 maxAge: 7 * 24 * 3600000,
                 path: '/',
-                domain: '.tishop.co',
+                ...(process.env.NODE_ENV === 'production' && { domain: '.tishop.co' })
             });
         }
         const response = {

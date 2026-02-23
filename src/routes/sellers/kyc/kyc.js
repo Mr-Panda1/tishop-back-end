@@ -5,6 +5,7 @@ const { supabase } = require('../../../db/supabase');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const { sellerKYCLimiter } = require('../../../middlewares/limit');
+const { encryptFile, decryptFile, hashFile } = require('../../../utils/encryption');
 
 const BUCKET_NAME = 'kyc_documents';
 const MAX_IMAGES = 3;
@@ -39,10 +40,9 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 return res.status(400).json({ error: 'All fields are required' });
             }
 
-            // Validate phone number format (509XXXXXXXX)
-            const phoneRegex = /^\+?509\d{8}$/;
-            if (!phoneRegex.test(phone)) {
-                return res.status(400).json({ error: 'Invalid phone number format. Must start with 509' });
+            // Validate phone number - must start with 509
+            if (!phone.trim().startsWith('509')) {
+                return res.status(400).json({ error: 'Invalid phone number. Must start with 509' });
             }
 
             // Validate files uploaded
@@ -105,74 +105,111 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 // Process and upload id_front
                 if (req.files.id_front_url) {
                     const file = req.files.id_front_url[0];
-                    const fileName = `${basePath}/id_front_${Date.now()}.webp`;
+                    const fileName = `${basePath}/id_front_${Date.now()}.enc`;
                     
                     const webpBuffer = await sharp(file.buffer)
                         .resize(IMAGE_WIDTH, IMAGE_WIDTH, { fit: 'inside', withoutEnlargement: true })
                         .webp({ quality: IMAGE_QUALITY })
                         .toBuffer();
 
+                    // Encrypt the file before uploading
+                    const { encryptedData, iv, authTag } = encryptFile(webpBuffer);
+                    const fileHash = hashFile(webpBuffer);
+
                     const { error: uploadError } = await supabase.storage
                         .from(BUCKET_NAME)
-                        .upload(fileName, webpBuffer, { contentType: 'image/webp' });
+                        .upload(fileName, encryptedData, { contentType: 'image/webp' });
 
                     if (uploadError) throw uploadError;
 
-                    uploadedUrls.id_front_url = fileName;
+                    uploadedUrls.id_front_url = {
+                        path: fileName,
+                        iv,
+                        authTag,
+                        hash: fileHash
+                    };
                 }
 
                 // Process and upload id_back (if provided)
                 if (req.files.id_back_url) {
                     const file = req.files.id_back_url[0];
-                    const fileName = `${basePath}/id_back_${Date.now()}.webp`;
+                    const fileName = `${basePath}/id_back_${Date.now()}.enc`;
                     
                     const webpBuffer = await sharp(file.buffer)
                         .resize(IMAGE_WIDTH, IMAGE_WIDTH, { fit: 'inside', withoutEnlargement: true })
                         .webp({ quality: IMAGE_QUALITY })
                         .toBuffer();
 
+                    // Encrypt the file before uploading
+                    const { encryptedData, iv, authTag } = encryptFile(webpBuffer);
+                    const fileHash = hashFile(webpBuffer);
+
                     const { error: uploadError } = await supabase.storage
                         .from(BUCKET_NAME)
-                        .upload(fileName, webpBuffer, { contentType: 'image/webp' });
+                        .upload(fileName, encryptedData, { contentType: 'image/webp' });
 
                     if (uploadError) throw uploadError;
 
-                    uploadedUrls.id_back_url = fileName;
+                    uploadedUrls.id_back_url = {
+                        path: fileName,
+                        iv,
+                        authTag,
+                        hash: fileHash
+                    };
                 }
 
                 // Process and upload selfie
                 if (req.files.selfie_url) {
                     const file = req.files.selfie_url[0];
-                    const fileName = `${basePath}/selfie_${Date.now()}.webp`;
+                    const fileName = `${basePath}/selfie_${Date.now()}.enc`;
                     
                     const webpBuffer = await sharp(file.buffer)
                         .resize(IMAGE_WIDTH, IMAGE_WIDTH, { fit: 'inside', withoutEnlargement: true })
                         .webp({ quality: IMAGE_QUALITY })
                         .toBuffer();
 
+                    // Encrypt the file before uploading
+                    const { encryptedData, iv, authTag } = encryptFile(webpBuffer);
+                    const fileHash = hashFile(webpBuffer);
+
                     const { error: uploadError } = await supabase.storage
                         .from(BUCKET_NAME)
-                        .upload(fileName, webpBuffer, { contentType: 'image/webp' });
+                        .upload(fileName, encryptedData, { contentType: 'image/webp' });
 
                     if (uploadError) throw uploadError;
 
-                    uploadedUrls.selfie_url = fileName;
+                    uploadedUrls.selfie_url = {
+                        path: fileName,
+                        iv,
+                        authTag,
+                        hash: fileHash
+                    };
                 }
 
-                // Insert file URLs into kyc_files table
+                // Insert file URLs and encryption metadata into kyc_files table
                 const { error: filesInsertError } = await supabase
                     .from('kyc_files')
                     .insert({
                         kyc_document_id: kycDocumentId,
-                        id_front_url: uploadedUrls.id_front_url,
-                        id_back_url: uploadedUrls.id_back_url || null,
-                        selfie_url: uploadedUrls.selfie_url,
+                        id_front_url: uploadedUrls.id_front_url.path,
+                        id_front_iv: uploadedUrls.id_front_url.iv,
+                        id_front_auth_tag: uploadedUrls.id_front_url.authTag,
+                        id_front_hash: uploadedUrls.id_front_url.hash,
+                        id_back_url: uploadedUrls.id_back_url?.path || null,
+                        id_back_iv: uploadedUrls.id_back_url?.iv || null,
+                        id_back_auth_tag: uploadedUrls.id_back_url?.authTag || null,
+                        id_back_hash: uploadedUrls.id_back_url?.hash || null,
+                        selfie_url: uploadedUrls.selfie_url.path,
+                        selfie_iv: uploadedUrls.selfie_url.iv,
+                        selfie_auth_tag: uploadedUrls.selfie_url.authTag,
+                        selfie_hash: uploadedUrls.selfie_url.hash,
+                        are_encrypted: true,
                         uploaded_at: new Date().toISOString()
                     });
 
                 if (filesInsertError) {
                     console.error('Error inserting file URLs:', filesInsertError);
-                    return res.status(500).json({ message: 'Error saving file information' });
+                    return res.status(500).json({ message: 'Erreur lors de l\'enregistrement des informations de fichier' });
                 }
 
                 return res.status(201).json({ 

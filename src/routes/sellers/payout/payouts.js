@@ -174,7 +174,7 @@ router.post('/payouts/withdraw', authenticateUser, sellerStoreLimiter, async (re
 
 		const kyc = await fetchLatestKyc(seller.id);
 		if (!kyc || kyc.status !== 'approved') {
-\t\t	return res.status(403).json({ message: 'Vérification KYC requise avant les retraits' });
+			return res.status(403).json({ message: 'Vérification KYC requise avant les retraits' });
 		}
 
 		if (!kyc.payout_method || !kyc.payout_account_number) {
