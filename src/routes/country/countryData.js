@@ -13,7 +13,7 @@ router.get('/departments', generalLimiter, (req, res) => {
         res.status(200).json({ departments });
     } catch (error) {
         console.error("Failed to load departments:", error);
-        res.status(500).json({ message: 'Failed to load departments.' });
+        res.status(500).json({ message: 'Erreur lors du chargement des départements.' });
     }
 })
 
@@ -29,7 +29,7 @@ router.get('/departments/:department/arrondissements', generalLimiter, (req, res
 
         if (!match) {
             return res.status(200).json({
-                message: "Department not found"
+                message: "Département introuvable"
             })
         }
 
@@ -52,7 +52,7 @@ router.get('/departments/:department/arrondissements/:arrondissement/communes', 
     );
 
     if (!match) {
-        return res.status(404).json({ message: 'Arrondissement not found'})
+        return res.status(404).json({ message: 'Arrondissement introuvable'})
     }
 
     const communes = match.municipalities.map( m => m.name);
@@ -67,7 +67,7 @@ router.get('/delivery-fee', generalLimiter, async (req, res) => {
 
         if (!commune) {
             return res.status(400).json({
-                message: "Commune parameter is required"
+                message: "Le paramètre commune est requis"
             });
         }
 
@@ -83,7 +83,7 @@ router.get('/delivery-fee', generalLimiter, async (req, res) => {
         if (error) {
             console.error('Error fetching delivery options:', error);
             return res.status(500).json({
-                message: "Failed to fetch delivery fee"
+                message: "Erreur lors de la récupération des frais de livraison"
             });
         }
 

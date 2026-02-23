@@ -176,7 +176,7 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 }
 
                 return res.status(201).json({ 
-                    message: 'KYC documents submitted successfully',
+                    message: 'Documents KYC soumis avec succès',
                     kycDocumentId: kycDocumentId,
                     status: 'pending'
                 });
@@ -221,13 +221,13 @@ router.get('/status', authenticateUser, async (req, res) => {
             return res.status(500).json({ message: 'Error fetching KYC status' });
         }
         if (!kycData) {
-            return res.status(200).json({ status: 'not_submitted', message: 'Your KYC information is not submitted yet. Please submit it to start selling on TiShop.'});
+            return res.status(200).json({ status: 'not_submitted', message: 'Vos informations KYC ne sont pas soumises. Veuillez les soumettre pour commencer à vendre sur TiShop.'});
         }
 
         if (kycData.status === 'rejected') {
             return res.status(200).json({
                 status: kycData.status,
-                message: 'Your KYC submission was rejected. Please review the rejection reason and submit again.',
+                message: 'Votre soumission KYC a été rejetée. Veuillez examiner la raison du rejet et la soumettre à nouveau.',
                 submitted_at: kycData.submitted_at,
                 reviewed_at: kycData.reviewed_at,
                 rejection_reason: kycData.rejection_reason || 'No reason provided'
@@ -236,7 +236,7 @@ router.get('/status', authenticateUser, async (req, res) => {
 
         return res.status(200).json({
             status: kycData.status,
-            message: kycData.status === 'pending' ? 'Your KYC submission is under review. We will notify you once a decision has been made.' : 'Your KYC submission is approved. You can now start selling on TiShop.',
+            message: kycData.status === 'pending' ? 'Votre soumission KYC est en cours d\'examen. Nous vous notifierons une fois qu\'une décision aura été prise.' : 'Votre soumission KYC est approuvée. Vous pouvez maintenant commencer à vendre sur TiShop.',
             submitted_at: kycData.submitted_at,
             reviewed_at: kycData.reviewed_at,
             rejection_reason: kycData.rejection_reason 

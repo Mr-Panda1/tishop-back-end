@@ -27,20 +27,20 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         } = req.body;
 
         if (!customerName || !customerEmail || !customerPhone) {
-            return res.status(400).json({ message: 'Customer name, email, and phone are required' });
+            return res.status(400).json({ message: 'Le nom, l\'adresse e-mail et le téléphone du client sont requis' });
         }
 
         if (!departmentId || !arrondissementId || !communeId || !landmark) {
-            return res.status(400).json({ message: 'Delivery location details are required' });
+            return res.status(400).json({ message: 'Les détails du lieu de livraison sont requis' });
         }
 
         if (!Array.isArray(cartItems) || cartItems.length === 0) {
-            return res.status(400).json({ message: 'Cart items are required' });
+            return res.status(400).json({ message: 'Les articles du panier sont requis' });
         }
 
         const productIds = [...new Set(cartItems.map(item => item.productId).filter(Boolean))];
         if (productIds.length === 0) {
-            return res.status(400).json({ message: 'Cart items must include productId' });
+            return res.status(400).json({ message: 'Les articles du panier doivent inclure l\'ID du produit' });
         }
 
         const variantIds = [...new Set(cartItems.map(item => item.productVariantId).filter(Boolean))];
@@ -56,7 +56,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         }
 
         if (!products || products.length === 0) {
-            return res.status(400).json({ message: 'No valid products found in cart' });
+            return res.status(400).json({ message: 'Aucun produit valide trouvé dans le panier' });
         }
 
         let variants = [];
@@ -85,7 +85,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
 
             const quantity = parseInt(item.quantity, 10);
             if (!Number.isInteger(quantity) || quantity <= 0) {
-                return res.status(400).json({ message: 'Invalid quantity in cart items' });
+                return res.status(400).json({ message: 'Quantité invalide dans les articles du panier' });
             }
 
             let unitPrice = product.price;
@@ -94,18 +94,18 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             if (item.productVariantId) {
                 const variant = variantMap.get(item.productVariantId);
                 if (!variant || variant.product_id !== product.id) {
-                    return res.status(400).json({ message: 'Invalid product variant for cart item' });
+                    return res.status(400).json({ message: 'Variante de produit invalide pour l\'article du panier' });
                 }
                 variantId = variant.id;
                 unitPrice = variant.price ?? product.price;
 
                 if (variant.stock !== null && variant.stock < quantity) {
-                    return res.status(400).json({ message: 'Insufficient stock for selected variant' });
+                    return res.status(400).json({ message: 'Stock insuffisant pour la variante sélectionnée' });
                 }
             } else if (product.has_variants) {
-                return res.status(400).json({ message: 'Variant is required for this product' });
+                return res.status(400).json({ message: 'La variante est requise pour ce produit' });
             } else if (product.stock !== null && product.stock < quantity) {
-                return res.status(400).json({ message: 'Insufficient stock for selected product' });
+                return res.status(400).json({ message: 'Stock insuffisant pour le produit sélectionné' });
             }
 
             normalizedItems.push({
@@ -150,7 +150,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         const deliveryMap = new Map((deliveryOptions || []).map(option => [option.shop_id, option]));
         for (const shopId of shopIds) {
             if (!deliveryMap.has(shopId)) {
-                return res.status(400).json({ message: 'One or more sellers do not deliver to the selected commune' });
+                return res.status(400).json({ message: 'Un ou plusieurs vendeurs ne livrent pas vers la commune sélectionnée' });
             }
         }
 
@@ -260,7 +260,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         }
 
         return res.status(201).json({
-            message: 'Order created successfully',
+            message: 'Commande créée avec succès',
             data: {
                 orderId,
                 orderNumber,
@@ -280,7 +280,7 @@ router.get('/', generalLimiter, async (req, res) => {
         const { email } = req.query;
 
         if (!email) {
-            return res.status(400).json({ message: 'Email query parameter is required' });
+            return res.status(400).json({ message: 'Le paramètre de requête email est requis' });
         }
 
         const { data: orders, error: ordersError } = await supabase
@@ -296,7 +296,7 @@ router.get('/', generalLimiter, async (req, res) => {
 
         if (!orders || orders.length === 0) {
             return res.status(200).json({
-                message: 'No orders found',
+                message: 'Aucune commande trouvée',
                 data: []
             });
         }
@@ -454,7 +454,7 @@ router.get('/', generalLimiter, async (req, res) => {
         }));
 
         return res.status(200).json({
-            message: 'Orders retrieved successfully',
+            message: 'Commandes récupérées avec succès',
             data: result
         });
     } catch (error) {
@@ -481,7 +481,7 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
         }
 
         if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
+            return res.status(404).json({ message: 'Commande introuvable' });
         }
 
         // Fetch seller orders
@@ -665,7 +665,7 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
         };
 
         return res.status(200).json({
-            message: 'Order retrieved successfully',
+            message: 'Commande récupérée avec succès',
             data: result
         });
     } catch (error) {

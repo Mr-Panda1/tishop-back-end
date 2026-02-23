@@ -34,7 +34,7 @@ router.post('/add-product',
 
             // Validate required fields
             if (!name?.trim() || !description?.trim() || !category_id?.trim()) {
-                return res.status(400).json({ message: 'Name, description, and category_id are required' });
+                return res.status(400).json({ message: 'Le nom, la description et la catégorie sont requis' });
             }
 
             // Validate numeric fields
@@ -42,11 +42,11 @@ router.post('/add-product',
             const numericStock = parseInt(stock);
             
             if (isNaN(numericPrice) || numericPrice < 0) {
-                return res.status(400).json({ message: 'Invalid price value' });
+                return res.status(400).json({ message: 'Valeur de prix invalide' });
             }
             
             if (isNaN(numericStock) || numericStock < 0) {
-                return res.status(400).json({ message: 'Invalid stock value' });
+                return res.status(400).json({ message: 'Valeur de stock invalide' });
             }
 
             // Validate status
@@ -56,10 +56,10 @@ router.post('/add-product',
             // Validate images
             const files = req.files || [];
             if (files.length === 0) {
-                return res.status(400).json({ message: 'At least one product image is required' });
+                return res.status(400).json({ message: 'Au moins une image de produit est requise' });
             }
             if (files.length > MAX_IMAGES) {
-                return res.status(400).json({ message: `Maximum ${MAX_IMAGES} images allowed` });
+                return res.status(400).json({ message: `Maximum ${MAX_IMAGES} images autorisées` });
             }
 
             // Ensure seller exists in sellers table 
@@ -71,11 +71,11 @@ router.post('/add-product',
 
             if (sellerFetchError) {
                 console.error('Error checking seller:', sellerFetchError);
-                return res.status(500).json({ message: 'Error verifying seller record' });
+                return res.status(500).json({ message: 'Erreur lors de la vérification du dossier du vendeur' });
             }
             
             if (!sellerRow) {
-                return res.status(404).json({ message: 'Seller record not found' });
+                return res.status(404).json({ message: 'Dossier du vendeur non trouvé' });
             }
 
             // Fetch existing shop
@@ -87,11 +87,11 @@ router.post('/add-product',
 
             if (shopFetchError) {
                 console.error('Error fetching shop:', shopFetchError);
-                return res.status(500).json({ message: 'Error fetching shop record' });
+                return res.status(500).json({ message: 'Erreur lors de la récupération du dossier de la boutique' });
             }
 
             if (!shopRow) {
-                return res.status(404).json({ message: 'Shop not found for this seller' });
+                return res.status(404).json({ message: 'Boutique introuvable pour ce vendeur' });
             }
 
             // Validate that the category exists
@@ -103,11 +103,11 @@ router.post('/add-product',
 
             if (categoryFetchError) {
                 console.error('Error fetching category:', categoryFetchError);
-                return res.status(500).json({ message: 'Error verifying product category' });
+                return res.status(500).json({ message: 'Erreur lors de la vérification de la catégorie du produit' });
             }
 
             if (!categoryRow) {
-                return res.status(400).json({ message: 'Invalid category_id: category not found' });
+                return res.status(400).json({ message: 'Category_id invalide : catégorie introuvable' });
             }
 
             // Insert product record
@@ -131,7 +131,7 @@ router.post('/add-product',
 
             if (productInsertError) {
                 console.error('Error inserting product:', productInsertError);
-                return res.status(500).json({ message: 'Error adding product' });
+                return res.status(500).json({ message: 'Erreur lors de l\'ajout du produit' });
             }
 
             const productId = productData.id;
@@ -191,7 +191,7 @@ router.post('/add-product',
 
                     if (uploadError) {
                         console.error('Error uploading image:', uploadError);
-                        return res.status(500).json({ message: 'Error uploading product images' });
+                        return res.status(500).json({ message: 'Erreur lors du téléchargement des images de produit' });
                     }
 
                     const { data: { publicUrl } } = supabase
@@ -202,7 +202,7 @@ router.post('/add-product',
                     uploadedFiles[i] = { url: publicUrl };
                 } catch (imageError) {
                     console.error('Error processing image:', imageError);
-                    return res.status(500).json({ message: 'Error processing product images' });
+                    return res.status(500).json({ message: 'Erreur lors du traitement des images de produit' });
                 }
             }
 
@@ -226,7 +226,7 @@ router.post('/add-product',
 
                 if (imageInsertError) {
                     console.error('Error inserting product image records:', imageInsertError);
-                    return res.status(500).json({ message: 'Error saving product images' });
+                    return res.status(500).json({ message: 'Erreur lors de l\'enregistrement des images de produit' });
                 }
             }
 
@@ -254,14 +254,14 @@ router.post('/add-product',
 
                     if (variantsInsertError) {
                         console.error('Error inserting product variants:', variantsInsertError);
-                        return res.status(500).json({ message: 'Product created but failed to save variants' });
+                        return res.status(500).json({ message: 'Produit créé mais échec de l\'enregistrement des variantes' });
                     }
 
                     insertedVariants = variantsInsertData || [];
                 }
             } catch (variantErr) {
                 console.error('Error processing variants:', variantErr);
-                return res.status(500).json({ message: 'Product created but variant processing failed' });
+                return res.status(500).json({ message: 'Produit créé mais le traitement des variantes a échoué' });
             }
 
             // Insert variant images mapping uploaded files to created variant IDs
@@ -290,17 +290,17 @@ router.post('/add-product',
 
                 if (variantImagesInsertError) {
                     console.error('Error inserting variant images:', variantImagesInsertError);
-                    return res.status(500).json({ message: 'Product created but failed to save variant images' });
+                    return res.status(500).json({ message: 'Produit créé mais échec de l\'enregistrement des images de variante' });
                 }
             }
 
             return res.status(201).json({ 
-                message: 'Product added successfully', 
+                message: 'Produit ajouté avec succès', 
                 product: productData 
             });
         } catch (error) {
             console.error('Error adding product:', error);
-            return res.status(500).json({ message: 'Internal server error' });
+            return res.status(500).json({ message: 'Erreur serveur interne' });
         }
     });
 
@@ -415,7 +415,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
         return res.json({ products: filteredProducts || [] });
     } catch (error) {
         console.error('Error fetching products:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 })
 
@@ -435,11 +435,11 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
 
         if (sellerFetchError) {
             console.error('Error fetching seller:', sellerFetchError);
-            return res.status(500).json({ message: 'Error verifying seller record' });
+            return res.status(500).json({ message: 'Erreur lors de la vérification du dossier du vendeur' });
         }
 
         if (!sellerRow) {
-            return res.status(404).json({ message: 'Seller record not found' });
+            return res.status(404).json({ message: 'Dossier du vendeur non trouvé' });
         }
 
         // Get the shop_id using seller.id
@@ -451,11 +451,11 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
 
         if (shopError) {
             console.error('Error fetching shop:', shopError);
-            return res.status(500).json({ message: 'Error fetching shop record' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération du dossier de la boutique' });
         }
 
         if (!shopData) {
-            return res.status(404).json({ message: 'Shop not found for this seller' });
+            return res.status(404).json({ message: 'Boutique introuvable pour ce vendeur' });
         }
 
         // Parse pagination parameters
@@ -515,7 +515,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
         return res.json({ products: data });
     } catch (error) {
         console.error('Error fetching seller products:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 });
 
@@ -550,7 +550,7 @@ router.patch('/update-seller-products/:id',
                 .maybeSingle();
 
             if (sellerFetchError || !sellerRow) {
-                return res.status(401).json({ message: 'Unauthorized' });
+                return res.status(401).json({ message: 'Non autorisé' });
             }
 
             // Fetch product and verify ownership
@@ -561,11 +561,11 @@ router.patch('/update-seller-products/:id',
                 .maybeSingle();
 
             if (productFetchError || !productData) {
-                return res.status(404).json({ message: 'Product not found' });
+                return res.status(404).json({ message: 'Produit introuvable' });
             }
 
             if (productData.shop.seller_id !== sellerRow.id) {
-                return res.status(403).json({ message: 'Forbidden: You do not own this product' });
+                return res.status(403).json({ message: 'Interdit : Vous ne possédez pas ce produit' });
             }
 
             const shopId = productData.shop.id;
@@ -575,21 +575,21 @@ router.patch('/update-seller-products/:id',
 
             if (name !== undefined) {
                 if (!name?.trim()) {
-                    return res.status(400).json({ message: 'Name cannot be empty' });
+                    return res.status(400).json({ message: 'Le nom ne peut pas être vide' });
                 }
                 updatePayload.name = name.trim();
             }
 
             if (description !== undefined) {
                 if (!description?.trim()) {
-                    return res.status(400).json({ message: 'Description cannot be empty' });
+                    return res.status(400).json({ message: 'La description ne peut pas être vide' });
                 }
                 updatePayload.description = description.trim();
             }
 
             if (category_id !== undefined) {
                 if (!category_id?.trim()) {
-                    return res.status(400).json({ message: 'Category is required' });
+                    return res.status(400).json({ message: 'La catégorie est requise' });
                 }
                 // Validate category exists
                 const { data: categoryData } = await supabase
@@ -599,7 +599,7 @@ router.patch('/update-seller-products/:id',
                     .maybeSingle();
 
                 if (!categoryData) {
-                    return res.status(400).json({ message: 'Invalid category_id' });
+                    return res.status(400).json({ message: 'Category_id invalide' });
                 }
                 updatePayload.category_id = category_id.trim();
             }
@@ -607,7 +607,7 @@ router.patch('/update-seller-products/:id',
             if (price !== undefined) {
                 const numericPrice = parseFloat(price);
                 if (isNaN(numericPrice) || numericPrice < 0) {
-                    return res.status(400).json({ message: 'Invalid price value' });
+                    return res.status(400).json({ message: 'Valeur de prix invalide' });
                 }
                 updatePayload.price = numericPrice;
             }
@@ -615,7 +615,7 @@ router.patch('/update-seller-products/:id',
             if (stock !== undefined) {
                 const numericStock = parseInt(stock);
                 if (isNaN(numericStock) || numericStock < 0) {
-                    return res.status(400).json({ message: 'Invalid stock value' });
+                    return res.status(400).json({ message: 'Valeur de stock invalide' });
                 }
                 updatePayload.stock = numericStock;
             }
@@ -626,7 +626,7 @@ router.patch('/update-seller-products/:id',
                 } else {
                     const threshold = parseInt(low_stock_threshold);
                     if (isNaN(threshold) || threshold < 0) {
-                        return res.status(400).json({ message: 'Invalid low_stock_threshold value' });
+                        return res.status(400).json({ message: 'Valeur de low_stock_threshold invalide' });
                     }
                     updatePayload.low_stock_threshold = threshold;
                 }
@@ -635,7 +635,7 @@ router.patch('/update-seller-products/:id',
             if (status !== undefined) {
                 const validStatuses = ['draft', 'published'];
                 if (!validStatuses.includes(status)) {
-                    return res.status(400).json({ message: 'Invalid status' });
+                    return res.status(400).json({ message: 'Statut invalide' });
                 }
                 updatePayload.status = status;
             }
@@ -653,7 +653,7 @@ router.patch('/update-seller-products/:id',
 
                 if (productUpdateError) {
                     console.error('Error updating product:', productUpdateError);
-                    return res.status(500).json({ message: 'Error updating product' });
+                    return res.status(500).json({ message: 'Erreur lors de la mise à jour du produit' });
                 }
             }
 
@@ -712,7 +712,7 @@ router.patch('/update-seller-products/:id',
 
                     if (uploadError) {
                         console.error('Error uploading image:', uploadError);
-                        return res.status(500).json({ message: 'Error uploading product images' });
+                        return res.status(500).json({ message: 'Erreur lors du téléchargement des images de produit' });
                     }
 
                     const { data: { publicUrl } } = supabase
@@ -723,7 +723,7 @@ router.patch('/update-seller-products/:id',
                     uploadedNewFiles.push({ url: publicUrl });
                 } catch (imageError) {
                     console.error('Error processing image:', imageError);
-                    return res.status(500).json({ message: 'Error processing product images' });
+                    return res.status(500).json({ message: 'Erreur lors du traitement des images de produit' });
                 }
             }
 
@@ -742,7 +742,7 @@ router.patch('/update-seller-products/:id',
 
                 if (imageInsertError) {
                     console.error('Error inserting new images:', imageInsertError);
-                    return res.status(500).json({ message: 'Error saving new product images' });
+                    return res.status(500).json({ message: 'Erreur lors de l\'enregistrement des nouvelles images de produit' });
                 }
             }
 
@@ -820,7 +820,7 @@ router.patch('/update-seller-products/:id',
 
                 if (variantsInsertError) {
                     console.error('Error inserting new variants:', variantsInsertError);
-                    return res.status(500).json({ message: 'Error adding new variants' });
+                    return res.status(500).json({ message: 'Erreur lors de l\'ajout de nouvelles variantes' });
                 }
 
                 insertedVariants = variantsInsertData || [];
@@ -848,7 +848,7 @@ router.patch('/update-seller-products/:id',
 
                 if (updateError) {
                     console.error('Error updating variant:', updateError);
-                    return res.status(500).json({ message: 'Error updating variant' });
+                    return res.status(500).json({ message: 'Erreur lors de la mise à jour de la variante' });
                 }
             }
 
@@ -871,16 +871,16 @@ router.patch('/update-seller-products/:id',
 
             if (fetchError || !updatedProduct) {
                 console.error('Error fetching updated product:', fetchError);
-                return res.status(500).json({ message: 'Product updated but failed to fetch updated data' });
+                return res.status(500).json({ message: 'Produit mis à jour mais échec de la récupération des données mises à jour' });
             }
 
             return res.json({ 
-                message: 'Product updated successfully', 
+                message: 'Produit mis à jour avec succès', 
                 product: updatedProduct 
             });
         } catch (error) {
             console.error('Error updating product:', error);
-            return res.status(500).json({ message: 'Internal server error' });
+            return res.status(500).json({ message: 'Erreur serveur interne' });
         }
     }
 );
@@ -900,7 +900,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimite
             .eq('user_id', user.id)
             .maybeSingle();
         if (sellerFetchError || !sellerRow) {
-            return res.status(401).json({ message: 'Unauthorized' });
+            return res.status(401).json({ message: 'Non autorisé' });
         }
 
         // Fetch product and verify ownership
@@ -911,11 +911,11 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimite
             .maybeSingle();
         
             if (productFetchError || !productData) {
-            return res.status(404).json({ message: 'Product not found' });
+            return res.status(404).json({ message: 'Produit introuvable' });
         }
 
         if (productData.shop.seller_id !== sellerRow.id) {
-            return res.status(403).json({ message: 'Forbidden: You do not own this product' });
+            return res.status(403).json({ message: 'Interdit : Vous ne possédez pas ce produit' });
         }
 
         // Check if product has any orders
@@ -927,12 +927,12 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimite
 
         if (orderCheckError) {
             console.error('Error checking orders:', orderCheckError);
-            return res.status(500).json({ message: 'Error checking product orders' });
+            return res.status(500).json({ message: 'Erreur lors de la vérification des commandes de produit' });
         }
 
         if (orderItems && orderItems.length > 0) {
             return res.status(400).json({ 
-                message: 'Cannot delete product with existing orders. Consider marking it as draft instead.',
+                message: 'Impossible de supprimer un produit avec des commandes existantes. Envisagez de le marquer comme brouillon à la place.',
                 hasOrders: true,
                 canDeactivate: true
             });
@@ -993,13 +993,13 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimite
 
             if (productDeleteError) {
                 console.error('Error deleting product:', productDeleteError);
-                return res.status(500).json({ message: 'Error deleting product' });
+                return res.status(500).json({ message: 'Erreur lors de la suppression du produit' });
             }
 
-            return res.json({ message: 'Product deleted successfully' });
+            return res.json({ message: 'Produit supprimé avec succès' });
     } catch (error) {
         console.error('Error deleting product:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 })
 
@@ -1013,7 +1013,7 @@ router.get('/categories', sellerStoreLimiter, async (req, res) => {
             .order('name', { ascending: true });
         if (error) {
             console.error('Error fetching categories:', error);
-            return res.status(500).json({ message: 'Error fetching product categories' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération des catégories de produit' });
         }
         return res.json({ categories: data });
     } catch (error) {

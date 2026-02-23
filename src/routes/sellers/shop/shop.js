@@ -27,7 +27,7 @@ router.put('/update-shop',
 
             // Validate required fields
             if (!name?.trim() || !description?.trim()) {
-                return res.status(400).json({ message: 'Name and description are required' });
+                return res.status(400).json({ message: 'Le nom et la description sont requis' });
             }
 
             // Ensure seller exists in sellers table
@@ -43,7 +43,7 @@ router.put('/update-shop',
             }
 
             if (!sellerRow) {
-                return res.status(400).json({ message: 'Seller profile not found. Complete seller onboarding first' });
+                return res.status(400).json({ message: 'Le profil du vendeur n\'a pas été trouvé. Complétez d\'abord l\'intégration du vendeur' });
             }
 
             // Fetch existing shop first
@@ -64,7 +64,7 @@ router.put('/update-shop',
 
             // Logo is required only for new shops
             if (!existingShop && !logoFile) {
-                return res.status(400).json({ message: 'Logo is required when creating a shop' });
+                return res.status(400).json({ message: 'Le logo est requis lors de la création d\'une boutique' });
             }
 
             // Process and upload logo if provided

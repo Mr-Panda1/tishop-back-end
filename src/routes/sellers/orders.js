@@ -89,7 +89,7 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
             }));
 
             return res.status(200).json({
-                message: 'Seller orders retrieved',
+                message: 'Commandes du vendeur récupérées',
                 data: result,
                 pagination: {
                     total: count,
@@ -173,7 +173,7 @@ router.get('/:sellerOrderId', authenticateUser, async (req, res) => {
         }
 
         return res.status(200).json({
-            message: 'Seller order retrieved',
+            message: 'Commande du vendeur récupérée',
             data: {
                 ...sellerOrder,
                 order,
@@ -194,7 +194,7 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
         const { status } = req.body;
 
         if (!status || !['shipped', 'delivered'].includes(status)) {
-            return res.status(400).json({ message: 'Invalid status. Must be "shipped" or "delivered"' });
+            return res.status(400).json({ message: 'Statut invalide. Doit être "expédié" ou "livré"' });
         }
 
         const { data: seller, error: sellerError } = await supabase
@@ -279,7 +279,7 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
         }
 
         return res.status(200).json({
-            message: 'Seller order status updated',
+            message: 'Statut de la commande du vendeur mis à jour',
             data: {
                 sellerOrderId,
                 status,
@@ -300,7 +300,7 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
         const { code } = req.body;
 
         if (!code || !/^\d{6}$/.test(code)) {
-            return res.status(400).json({ message: 'Invalid delivery code. Must be 6 digits' });
+            return res.status(400).json({ message: 'Code de livraison invalide. Doit être 6 chiffres' });
         }
 
         const { data: seller, error: sellerError } = await supabase
@@ -335,11 +335,11 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
         }
 
         if (sellerOrder.status !== 'shipped') {
-            return res.status(400).json({ message: 'Delivery code can only be verified for shipped orders' });
+            return res.status(400).json({ message: 'Le code de livraison ne peut être vérifié que pour les commandes expédiées' });
         }
 
         if (!sellerOrder.delivery_code_full) {
-            return res.status(400).json({ message: 'No delivery code found for this order' });
+            return res.status(400).json({ message: 'Aucun code de livraison trouvé pour cette commande' });
         }
 
         const codeMatch = verifyCodeMatch(code, sellerOrder.delivery_code_full);
@@ -364,7 +364,7 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
                 }]);
 
             return res.status(400).json({
-                message: 'Incorrect delivery code',
+                message: 'Code de livraison incorrect',
                 attemptsRemaining: 3 - ((sellerOrder.delivery_code_attempts || 0) + 1)
             });
         }
@@ -396,7 +396,7 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
             }]);
 
         return res.status(200).json({
-            message: 'Delivery confirmed successfully',
+            message: 'Livraison confirmée avec succès',
             data: {
                 sellerOrderId,
                 status: 'delivered',

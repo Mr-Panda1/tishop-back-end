@@ -13,7 +13,7 @@ router.get('/categories-with-products', generalLimiter, async (req, res) => {
             .is('parent_id', null);
 
         if (parentError) {
-            return res.status(500).json({ message: 'Error fetching parent categories' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération des catégories parentes' });
         }
 
         // Fetch all subcategories
@@ -23,7 +23,7 @@ router.get('/categories-with-products', generalLimiter, async (req, res) => {
             .not('parent_id', 'is', null);
 
         if (subError) {
-            return res.status(500).json({ message: 'Error fetching subcategories' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération des sous-catégories' });
         }
 
         // Fetch all products
@@ -32,7 +32,7 @@ router.get('/categories-with-products', generalLimiter, async (req, res) => {
             .select('id, name, category_id');
 
         if (prodError) {
-            return res.status(500).json({ message: 'Error fetching products' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération des produits' });
         }
 
         // Map subcategories to their products
@@ -68,7 +68,7 @@ router.get('/categories-with-products', generalLimiter, async (req, res) => {
 
         return res.json({ categories: result });
     } catch (error) {
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 })
 

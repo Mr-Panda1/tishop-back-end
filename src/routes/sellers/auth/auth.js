@@ -14,7 +14,7 @@ router.post('/seller/login', authLimiter, async (req, res) => {
 
         // Verify if inpuits are provided
         if (!email || !password) {
-            return res.status(400).json({ message: 'Email and password are required.' });
+            return res.status(400).json({ message: 'L\'adresse e-mail et le mot de passe sont requis.' });
         }
 
         // Check if email exist
@@ -62,7 +62,7 @@ router.post('/seller/login', authLimiter, async (req, res) => {
             });
         }
         const response = {
-            message: "Login successfully",
+            message: "Connexion réussie",
             user: data.user,
             access_token: data.session.access_token,
             refresh_token: data.session.refresh_token
@@ -73,7 +73,7 @@ router.post('/seller/login', authLimiter, async (req, res) => {
     } catch (error) {
         console.log("Login request error:", error.message);
         
-        return res.status(500).json({ message: 'Internal server error.' });
+        return res.status(500).json({ message: 'Erreur serveur interne.' });
     }
 })
 
@@ -114,7 +114,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         if (!first_name || !last_name || !email || !password) {
             console.log('VALIDATION FAILED: Missing required fields');
             return res.status(400).json({ 
-                message: 'All fields are required.',
+                message: 'Tous les champs sont requis.',
                 missing: {
                     first_name: !first_name,
                     last_name: !last_name,
@@ -134,7 +134,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         
         if (existingUser && !existingUserError) {
             console.log('CONFLICT: Email already exists');
-            return res.status(409).json({ message: 'Invalid credentials.' });
+            return res.status(409).json({ message: 'Identifiants invalides.' });
         }
 
         console.log('Step 2: Creating auth user...');
@@ -151,14 +151,14 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                 name: error.name
             });
             return res.status(400).json({ 
-                message: 'Error creating user account.',
+                message: 'Erreur lors de la création du compte utilisateur.',
                 details: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
 
         if (!data?.user?.id) {
             console.error("AUTH USER MISSING: No user ID returned");
-            return res.status(400).json({ message: 'Error creating user account - no user ID.' });
+            return res.status(400).json({ message: 'Erreur lors de la création du compte utilisateur - pas d\'ID utilisateur.' });
         }
 
         console.log('Step 3: Auth user created, ID:', data.user.id);
@@ -184,7 +184,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                 details: userError.details
             });
             return res.status(500).json({ 
-                message: 'Error saving user details.',
+                message: 'Erreur lors de l\'enregistrement des détails de l\'utilisateur.',
                 details: process.env.NODE_ENV === 'development' ? userError.message : undefined
             });
         }
@@ -209,7 +209,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                 details: sellerError.details
             });
             return res.status(500).json({ 
-                message: 'Error creating seller profile.',
+                message: 'Erreur lors de la création du profil vendeur.',
                 details: process.env.NODE_ENV === 'development' ? sellerError.message : undefined
             });
         }
@@ -233,7 +233,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                 details: shopError.details
             });
             return res.status(500).json({ 
-                message: 'Error creating shop.',
+                message: 'Erreur lors de la création de la boutique.',
                 details: process.env.NODE_ENV === 'development' ? shopError.message : undefined
             });
         }
@@ -252,7 +252,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                 details: balanceError.details
             });
             return res.status(500).json({ 
-                message: 'Error creating balance account.',
+                message: 'Erreur lors de la création du compte de solde.',
                 details: process.env.NODE_ENV === 'development' ? balanceError.message : undefined
             });
         }
@@ -268,7 +268,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
 
         console.log('=== SIGNUP SUCCESS ===');
         const response = {
-            message: "User created successfully. Please verify your email before logging in.",
+            message: "Utilisateur créé avec succès. Veuillez vérifier votre adresse e-mail avant de vous connecter.",
             user: data.user,
         }
 
@@ -278,7 +278,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         console.error("Error stack:", error.stack);
         console.error("Error message:", error.message);
         return res.status(500).json({ 
-            message: 'Internal server error.',
+            message: 'Erreur serveur interne.',
             details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }

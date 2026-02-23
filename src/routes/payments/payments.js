@@ -13,7 +13,7 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
         const { orderId, returnCodes = false } = req.body;
 
         if (!orderId) {
-            return res.status(400).json({ message: 'orderId is required' });
+            return res.status(400).json({ message: 'L\'ID de la commande est requis' });
         }
 
         const { data: order, error: orderError } = await supabase
@@ -24,15 +24,15 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
 
         if (orderError) {
             console.error('Error fetching order:', orderError);
-            return res.status(500).json({ message: 'Error fetching order' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération de la commande' });
         }
 
         if (!order) {
-            return res.status(404).json({ message: 'Order not found' });
+            return res.status(404).json({ message: 'Commande introuvable' });
         }
 
         if (order.status === 'cancelled') {
-            return res.status(400).json({ message: 'Cancelled orders cannot be marked as paid' });
+            return res.status(400).json({ message: 'Les commandes annulées ne peuvent pas être marquées comme payées' });
         }
 
         const { data: sellerOrders, error: sellerOrdersError } = await supabase
@@ -42,11 +42,11 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
 
         if (sellerOrdersError) {
             console.error('Error fetching seller orders:', sellerOrdersError);
-            return res.status(500).json({ message: 'Error fetching seller orders' });
+            return res.status(500).json({ message: 'Erreur lors de la récupération des commandes du vendeur' });
         }
 
         if (!sellerOrders || sellerOrders.length === 0) {
-            return res.status(400).json({ message: 'No seller orders found for this order' });
+            return res.status(400).json({ message: 'Aucune commande de vendeur trouvée pour cette commande' });
         }
 
         // Check if order is already paid and codes exist
@@ -63,7 +63,7 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
             const shippingFee = sellerOrders.reduce((sum, so) => sum + (so.delivery_fee || 0), 0);
 
             return res.status(200).json({
-                message: 'Order already paid',
+                message: 'Commande déjà payée',
                 data: {
                     orderId,
                     orderNumber: order.order_number,
@@ -93,7 +93,7 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
 
             if (updateError) {
                 console.error('Error updating seller order:', updateError);
-                return res.status(500).json({ message: 'Error updating seller order' });
+                return res.status(500).json({ message: 'Erreur lors de la mise à jour de la commande du vendeur' });
             }
 
             const { error: logError } = await supabase
@@ -108,7 +108,7 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
 
             if (logError) {
                 console.error('Error logging status update:', logError);
-                return res.status(500).json({ message: 'Error logging status update' });
+                return res.status(500).json({ message: 'Erreur lors de l\'enregistrement de la mise à jour du statut' });
             }
 
             if (returnCodes) {
@@ -133,11 +133,11 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
 
         if (orderUpdateError) {
             console.error('Error updating order:', orderUpdateError);
-            return res.status(500).json({ message: 'Error updating order status' });
+            return res.status(500).json({ message: 'Erreur lors de la mise à jour du statut de la commande' });
         }
 
         return res.status(200).json({
-            message: 'Order marked as paid',
+            message: 'Commande marquée comme payée',
             data: {
                 orderId,
                 orderNumber: order.order_number,
@@ -150,7 +150,7 @@ router.post('/mark-paid', generalLimiter, async (req, res) => {
         });
     } catch (error) {
         console.error('Mark paid error:', error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 });
 
