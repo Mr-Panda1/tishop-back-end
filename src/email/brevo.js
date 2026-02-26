@@ -3,7 +3,7 @@ const nodemailer = require("nodemailer");
 // Initialize Brevo transporter
 const transporter = nodemailer.createTransport({
   host: env.host,
-  port: env.port,
+  port: env.BrevoPort,
   secure: false,
   auth: {
     user: env.user,

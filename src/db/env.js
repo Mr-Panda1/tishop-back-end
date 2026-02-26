@@ -21,11 +21,13 @@ const env = {
     clientId: process.env.MONCASH_CLIENT_ID,
     clientsecret: process.env.MONCASH_CLIENT_SECRET,
     moncashMode: process.env.MONCASH_MODE || 'sandbox',
-    moncashCallbackUrl: process.env.MONCASH_CALLBACK_URL || 'https://pay.tishop.co/api/payments/callback',
+    moncashReturnUrl: process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return',
+    moncashWebhookUrl: process.env.MONCASH_WEBHOOK_URL || 'https://pay.tishop.co/api/moncash/webhook',
+    frontendOrderConfirmationUrl: process.env.FRONTEND_ORDER_CONFIRMATION_URL || 'https://tishop.co/shop/order-confirmation',
 
     // Email (Brevo/Sendinblue) configuration
     host: process.env.BREVO_SMTP_HOST || "smtp-relay.brevo.com",
-    port: parseInt(process.env.BREVO_SMTP_PORT) || 587,
+    BrevoPort: parseInt(process.env.BREVO_SMTP_PORT) || 587,
     user: process.env.BREVO_EMAIL_USER,
     pass: process.env.BREVO_EMAIL_PASS,
     emailPass: process.env.BREVO_EMAIL_PASS,
