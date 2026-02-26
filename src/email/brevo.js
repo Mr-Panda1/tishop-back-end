@@ -1,20 +1,20 @@
+const env = require('../db/env');
 const nodemailer = require("nodemailer");
-
 // Initialize Brevo transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.BREVO_SMTP_HOST || "smtp-relay.brevo.com",
-  port: parseInt(process.env.BREVO_SMTP_PORT) || 587,
-  secure: false, // Must be boolean, not string
+  host: env.host,
+  port: env.port,
+  secure: false,
   auth: {
-    user: process.env.BREVO_EMAIL_USER,
-    pass: process.env.BREVO_EMAIL_PASS,
+    user: env.user,
+    pass: env.pass,
   },
   connectionTimeout: 10000, // 10 seconds
   socketTimeout: 10000, // 10 seconds
 });
 
-const DEFAULT_FROM_EMAIL = process.env.BREVO_FROM_EMAIL || "no-reply@tishop.co";
-const DEFAULT_FROM_NAME = "TiShop";
+const DEFAULT_FROM_EMAIL = env.fromEmail;
+const DEFAULT_FROM_NAME = env.fromName;
 
 /**
  * Verify Brevo connection
@@ -27,8 +27,8 @@ async function verifyConnection() {
   } catch (error) {
     console.error("✗ Brevo connection failed:", error.message);
     console.error("Check your environment variables:");
-    console.error("- BREVO_EMAIL_USER:", process.env.BREVO_EMAIL_USER ? "set" : "NOT SET");
-    console.error("- BREVO_EMAIL_PASS:", process.env.BREVO_EMAIL_PASS ? "set" : "NOT SET");
+    console.error("- BREVO_EMAIL_USER:", env.user ? "set" : "NOT SET");
+    console.error("- BREVO_EMAIL_PASS:", env.pass ? "set" : "NOT SET");
     return false;
   }
 }
