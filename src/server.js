@@ -114,6 +114,9 @@ app.use('/customer/shop/category', require('./routes/customers/category'));
 // app.use('/customer/shop/product', require('./routes/customers/products'));
 app.use('/customer/orders', require('./routes/customers/orders'));
 
+// Payment checkout page (must be on pay.tishop.co to avoid MonCash blocking)
+app.use('/', require('./routes/checkout'));
+
 // Verify supabase connection
 const { supabase } = require('./db/supabase');
 const testSupabase = async () => {
