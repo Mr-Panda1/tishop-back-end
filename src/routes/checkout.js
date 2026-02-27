@@ -83,7 +83,7 @@ router.get('/checkout', async (req, res) => {
         // Initiate MonCash payment (request comes FROM pay.tishop.co server)
         console.log('[Checkout] Initiating MonCash payment for order:', orderId);
         
-        const moncash = require('../../moncash/moncashConfig');
+        const moncash = require('../moncash/moncashConfig');
         
         const paymentData = {
             amount: order.total_amount,
