@@ -14,7 +14,7 @@ router.get('/checkout', async (req, res) => {
         const { orderId } = req.query;
 
         if (!orderId) {
-            return res.status(400).html(`
+            return res.status(400).type('text/html').send(`
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -41,7 +41,7 @@ router.get('/checkout', async (req, res) => {
             .maybeSingle();
 
         if (orderError || !order) {
-            return res.status(404).html(`
+            return res.status(404).type('text/html').send(`
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -61,7 +61,7 @@ router.get('/checkout', async (req, res) => {
         }
 
         if (order.status === 'paid') {
-            return res.status(400).html(`
+            return res.status(400).type('text/html').send(`
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -93,7 +93,7 @@ router.get('/checkout', async (req, res) => {
         moncash.payment.create(paymentData, function(error, payment) {
             if (error) {
                 console.error('[Checkout] Error creating payment:', error.message);
-                return res.status(500).html(`
+                return res.status(500).type('text/html').send(`
                     <!DOCTYPE html>
                     <html>
                     <head>
@@ -115,7 +115,7 @@ router.get('/checkout', async (req, res) => {
 
             if (!payment || !payment.payment_token) {
                 console.error('[Checkout] Invalid payment response:', payment);
-                return res.status(500).html(`
+                return res.status(500).type('text/html').send(`
                     <!DOCTYPE html>
                     <html>
                     <head>
@@ -144,7 +144,7 @@ router.get('/checkout', async (req, res) => {
 
     } catch (error) {
         console.error('[Checkout] Unexpected error:', error);
-        res.status(500).html(`
+        res.status(500).type('text/html').send(`
             <!DOCTYPE html>
             <html>
             <head>
