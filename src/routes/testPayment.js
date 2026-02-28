@@ -260,7 +260,7 @@ router.get('/', (req, res) => {
                         const errorData = JSON.parse(responseText);
                         errorMsg = errorData.error || errorData.details || errorMsg;
                         if (errorData.auth && errorData.auth.access_token) {
-                            errorMsg += '\n\nAuth token used:\n' + errorData.auth.access_token;
+                            errorMsg += '\\n\\nAuth token used:\\n' + errorData.auth.access_token;
                         }
                     } catch {
                         errorMsg = responseText.substring(0, 200);
