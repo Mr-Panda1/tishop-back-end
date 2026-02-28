@@ -1,10 +1,32 @@
 const axios = require('axios');
+const crypto = require('crypto');
 
-const moncashMode = process.env.MONCASH_MODE || 'sandbox';
-const moncashClientId = process.env.MONCASH_CLIENT_ID || '2fd21ecb4a736cc2a82fc6d9fcc8739a';
-const moncashClientSecret = process.env.MONCASH_CLIENT_SECRET || 'cC2YgozrT66gdI5pFzrYRhBBRr8UQpWHOiCBiXgQ1I0kKbwNPd87fy64m_w04dQs';
+function normalizeMoncashMode(mode) {
+    const rawMode = (mode || 'sandbox').toLowerCase().trim();
+
+    if (['live', 'prod', 'production'].includes(rawMode)) {
+        return 'live';
+    }
+
+    if (['sandbox', 'test'].includes(rawMode)) {
+        return 'sandbox';
+    }
+
+    console.warn(`[Moncash Config] Unknown MONCASH_MODE "${mode}", defaulting to sandbox`);
+    return 'sandbox';
+}
+
+const moncashMode = normalizeMoncashMode(process.env.MONCASH_MODE);
+const moncashClientId = process.env.MONCASH_CLIENT_ID?.trim();
+const moncashClientSecret = process.env.MONCASH_CLIENT_SECRET?.trim();
+const moncashPluginBusinessKey = process.env.MONCASH_PLUGIN_BUSINESS_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
+const moncashPluginPublicKey = process.env.MONCASH_PLUGIN_PUBLIC_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
 const moncashReturnUrl = process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return';
 const moncashWebhookUrl = process.env.MONCASH_WEBHOOK_URL || 'https://pay.tishop.co/api/moncash/webhook';
+
+if (!moncashClientId || !moncashClientSecret) {
+    throw new Error('[Moncash Config] Missing MONCASH_CLIENT_ID or MONCASH_CLIENT_SECRET in environment');
+}
 
 console.log('[Moncash Config] Loaded credentials:');
 console.log('[Moncash Config] Client ID:', moncashClientId ? `${moncashClientId.substring(0, 8)}...` : 'MISSING');
@@ -38,6 +60,61 @@ const getGatewayUrl = (mode) => {
 const API_BASE_URL = getApiBaseUrl(config.mode);
 const GATEWAY_URL = getGatewayUrl(config.mode);
 
+function toUrlSafeBase64(buffer) {
+    return buffer
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '');
+}
+
+function toPublicKeyPem(rawKey) {
+    if (!rawKey) {
+        return null;
+    }
+
+    if (rawKey.includes('BEGIN PUBLIC KEY')) {
+        return rawKey;
+    }
+
+    const normalized = rawKey.replace(/\s+/g, '');
+    const chunks = normalized.match(/.{1,64}/g) || [];
+    return `-----BEGIN PUBLIC KEY-----\n${chunks.join('\n')}\n-----END PUBLIC KEY-----`;
+}
+
+function rsaEncryptNoPadding(value, publicKeyPem) {
+    if (!publicKeyPem) {
+        throw new Error('Missing MonCash plugin public key');
+    }
+
+    const keyObject = crypto.createPublicKey(publicKeyPem);
+    const modulusBits = keyObject.asymmetricKeyDetails?.modulusLength;
+
+    if (!modulusBits) {
+        throw new Error('Unable to determine RSA modulus length for MonCash plugin key');
+    }
+
+    const blockSize = Math.ceil(modulusBits / 8);
+    const plainBuffer = Buffer.from(String(value), 'utf8');
+
+    if (plainBuffer.length > blockSize) {
+        throw new Error('Value too long for MonCash plugin RSA encryption');
+    }
+
+    const padded = Buffer.alloc(blockSize, 0);
+    plainBuffer.copy(padded, blockSize - plainBuffer.length);
+
+    const encrypted = crypto.publicEncrypt(
+        {
+            key: keyObject,
+            padding: crypto.constants.RSA_NO_PADDING
+        },
+        padded
+    );
+
+    return toUrlSafeBase64(encrypted);
+}
+
 // Token cache
 let tokenCache = null;
 let tokenExpiry = null;
@@ -57,6 +134,7 @@ async function generateToken() {
             `${API_BASE_URL}/oauth/token`,
             'scope=read,write&grant_type=client_credentials',
             {
+                timeout: 15000,
                 headers: {
                     'Authorization': `Basic ${credentials}`,
                     'Content-Type': 'application/x-www-form-urlencoded'
@@ -65,8 +143,8 @@ async function generateToken() {
         );
 
         tokenCache = response.data.access_token;
-        // Token expires in ~59 seconds, cache for 50 seconds to be safe
-        tokenExpiry = Date.now() + 50000;
+        const expiresInMs = Math.max(((response.data.expires_in || 59) - 5) * 1000, 1000);
+        tokenExpiry = Date.now() + expiresInMs;
         
         console.log('[Moncash] OAuth token generated successfully');
         return tokenCache;
@@ -78,6 +156,87 @@ async function generateToken() {
 
 // MonCash client object
 const moncash = {
+    plugin: {
+        create: async function(paymentData, callback) {
+            try {
+                if (!moncashPluginBusinessKey || !moncashPluginPublicKey) {
+                    throw {
+                        message: 'Missing MONCASH_PLUGIN_BUSINESS_KEY/MONCASH_PLUGIN_PUBLIC_KEY (or BUSINESS_KEY) for plugin flow',
+                        httpStatusCode: 500
+                    };
+                }
+
+                const publicKeyPem = toPublicKeyPem(moncashPluginPublicKey);
+                const encryptedOrderId = rsaEncryptNoPadding(String(paymentData.orderId), publicKeyPem);
+                const encryptedAmount = rsaEncryptNoPadding(String(paymentData.amount), publicKeyPem);
+
+                const body = new URLSearchParams({
+                    orderId: encryptedOrderId,
+                    amount: encryptedAmount
+                }).toString();
+
+                const response = await axios.post(
+                    `${GATEWAY_URL}/Checkout/Rest/${moncashPluginBusinessKey}`,
+                    body,
+                    {
+                        timeout: 20000,
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }
+                    }
+                );
+
+                const responseData = response.data || {};
+
+                if (!responseData.success || !responseData.token) {
+                    throw {
+                        message: responseData.message || 'Invalid plugin payment response',
+                        response: responseData,
+                        httpStatusCode: response.status || 500
+                    };
+                }
+
+                const normalized = {
+                    success: true,
+                    mode: config.mode,
+                    payment_token: {
+                        token: responseData.token
+                    },
+                    raw: responseData
+                };
+
+                if (callback) {
+                    callback(null, normalized);
+                }
+
+                return normalized;
+            } catch (error) {
+                const errorObj = {
+                    message: error.response?.data?.message || error.message || 'MonCash plugin payment failed',
+                    response: error.response?.data || error.response,
+                    httpStatusCode: error.response?.status || error.httpStatusCode || 500
+                };
+
+                if (callback) {
+                    callback(errorObj, null);
+                    return;
+                }
+
+                throw errorObj;
+            }
+        },
+
+        redirect_uri: function(payment) {
+            const token = payment?.payment_token?.token || payment?.token;
+
+            if (!token) {
+                throw new Error('Invalid plugin payment object');
+            }
+
+            return `${GATEWAY_URL}/Payment/Redirect?token=${token}`;
+        }
+    },
+
     payment: {
         // Create a payment
         create: async function(paymentData, callback) {
@@ -91,6 +250,7 @@ const moncash = {
                         orderId: paymentData.orderId
                     },
                     {
+                        timeout: 20000,
                         headers: {
                             'Authorization': `Bearer ${token}`,
                             'Content-Type': 'application/json'
@@ -136,6 +296,7 @@ const moncash = {
                 const response = await axios.get(
                     `${API_BASE_URL}/v1/RetrieveTransactionPayment`,
                     {
+                        timeout: 20000,
                         params: { transactionId },
                         headers: {
                             'Authorization': `Bearer ${token}`

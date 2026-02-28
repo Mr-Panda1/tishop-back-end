@@ -7,6 +7,27 @@ const env = require('../../db/env');
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
+function mapMoncashCreateError(error) {
+    const providerMessage = error?.response?.message || error?.message || 'MonCash payment creation failed';
+    const providerStatus = error?.httpStatusCode || 500;
+
+    if (/partner\s+is\s+blocked/i.test(providerMessage)) {
+        return {
+            status: 403,
+            message: 'Compte partenaire MonCash bloqué pour cet environnement. Vérifiez le mode (sandbox/live), le domaine marchand et contactez le support MonCash.',
+            providerMessage,
+            providerStatus
+        };
+    }
+
+    return {
+        status: providerStatus,
+        message: 'Erreur lors de la création du paiement Moncash',
+        providerMessage,
+        providerStatus
+    };
+}
+
 async function getOrderByIdOrOrderNumber(orderIdentifier) {
     const { data, error } = await supabase
         .from('orders')
@@ -191,14 +212,16 @@ router.post('/initiate', generalLimiter, async (req, res) => {
 
         moncash.payment.create(paymentData, function (error, payment) {
             if (error) {
+                const mappedError = mapMoncashCreateError(error);
                 console.error('[Moncash Initiate] Error creating payment:', {
                     message: error.message,
                     response: error.response,
                     httpStatusCode: error.httpStatusCode
                 });
-                return res.status(500).json({ 
-                    message: 'Erreur lors de la création du paiement Moncash',
-                    details: error.response?.message || error.message
+                return res.status(mappedError.status).json({ 
+                    message: mappedError.message,
+                    details: mappedError.providerMessage,
+                    providerStatus: mappedError.providerStatus
                 });
             }
 

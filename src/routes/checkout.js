@@ -9,9 +9,16 @@ const router = express.Router();
 const { supabase } = require('../db/supabase');
 
 function getMoncashErrorDetails(error) {
+    const providerMessage = error?.response?.message || error?.message || 'MonCash payment creation failed';
+    const providerStatus = error?.httpStatusCode || 500;
+    const isPartnerBlocked = /partner\s+is\s+blocked/i.test(providerMessage);
+
     return {
-        message: error?.message,
-        httpStatusCode: error?.httpStatusCode,
+        message: isPartnerBlocked
+            ? 'MonCash partner account is blocked in current mode (sandbox/live).'
+            : providerMessage,
+        providerMessage,
+        httpStatusCode: isPartnerBlocked ? 403 : providerStatus,
         response: error?.response,
         stack: error?.stack
     };
@@ -280,7 +287,11 @@ router.post('/api/checkout/initiate-payment', async (req, res) => {
             if (error) {
                 const errorDetails = getMoncashErrorDetails(error);
                 console.error('[API] Error creating payment:', errorDetails);
-                return res.status(500).json({ error: error.response?.message || error.message });
+                return res.status(errorDetails.httpStatusCode).json({
+                    error: errorDetails.message,
+                    details: errorDetails.providerMessage,
+                    providerStatus: error?.httpStatusCode || 500
+                });
             }
 
             if (!payment || !payment.payment_token) {

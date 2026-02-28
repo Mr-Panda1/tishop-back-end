@@ -2,6 +2,28 @@ const express = require('express');
 const router = express.Router();
 const moncash = require('../moncash/moncashConfig');
 
+function getMoncashErrorInfo(error) {
+    const providerMessage = error?.response?.message || error?.message || 'Failed to create payment';
+    const providerStatus = error?.httpStatusCode || 500;
+    const isPartnerBlocked = /partner\s+is\s+blocked/i.test(providerMessage);
+
+    if (isPartnerBlocked) {
+        return {
+            status: 403,
+            message: 'MonCash partner account is blocked in current mode (sandbox/live). Contact MonCash support or update merchant dashboard URLs/mode credentials.',
+            providerMessage,
+            providerStatus
+        };
+    }
+
+    return {
+        status: providerStatus,
+        message: providerMessage,
+        providerMessage,
+        providerStatus
+    };
+}
+
 router.get('/token', async (req, res) => {
     try {
         const forceRefresh = req.query.refresh === '1';
@@ -258,10 +280,7 @@ router.get('/', (req, res) => {
                     let errorMsg = 'Failed to create payment';
                     try {
                         const errorData = JSON.parse(responseText);
-                        errorMsg = errorData.error || errorData.details || errorMsg;
-                        if (errorData.auth && errorData.auth.access_token) {
-                            errorMsg += '\\n\\nAuth token used:\\n' + errorData.auth.access_token;
-                        }
+                        errorMsg = errorData.error || errorData.details?.message || errorData.details || errorMsg;
                     } catch {
                         errorMsg = responseText.substring(0, 200);
                     }
@@ -269,7 +288,6 @@ router.get('/', (req, res) => {
                 }
 
                 const data = JSON.parse(responseText);
-                const authToken = data.auth && data.auth.access_token ? data.auth.access_token : 'N/A';
                 const paymentToken = data.data && data.data.payment_token ? data.data.payment_token : '';
 
                 result.className = 'result success';
@@ -280,8 +298,6 @@ router.get('/', (req, res) => {
                     '<strong>Amount:</strong> ' + data.data.amount + ' HTG<br>' +
                     '<strong>Mode:</strong> ' + (data.data.mode || 'sandbox') + '<br>' +
                     '<strong>Token:</strong> ' + paymentToken.substring(0, 40) + '...<br><br>' +
-                    '<strong>Auth token used:</strong><br>' +
-                    '<span style="word-break: break-all; font-size: 10px; font-family: monospace;">' + authToken + '</span><br><br>' +
                     '<strong style="color: #059669;">🔄 Redirecting to MonCash in 2 seconds...</strong>' +
                     '</div>';
 
@@ -327,19 +343,18 @@ router.post('/create', async (req, res) => {
             orderId: String(orderId)
         };
 
-        const tokenData = await moncash.debug.getAccessToken();
-
-        moncash.payment.create(paymentData, function(error, payment) {
+        moncash.plugin.create(paymentData, function(error, payment) {
             if (error) {
+                const errorInfo = getMoncashErrorInfo(error);
                 console.error('[Test Payment] Error:', error);
-                return res.status(500).json({ 
-                    error: error.message || 'Failed to create payment',
-                    details: error.response,
-                    auth: {
-                        access_token: tokenData.access_token,
-                        token_type: tokenData.token_type,
-                        mode: tokenData.mode,
-                        api_base_url: tokenData.api_base_url
+                return res.status(errorInfo.status).json({ 
+                    error: errorInfo.message,
+                    details: {
+                        path: error.response?.path,
+                        error: error.response?.error,
+                        message: errorInfo.providerMessage,
+                        timestamp: error.response?.timestamp,
+                        status: errorInfo.providerStatus
                     }
                 });
             }
@@ -351,7 +366,7 @@ router.post('/create', async (req, res) => {
 
             console.log('[Test Payment] Payment created successfully');
 
-            const redirectUri = moncash.payment.redirect_uri(payment);
+            const redirectUri = moncash.plugin.redirect_uri(payment);
             
             return res.json({ 
                 success: true, 
@@ -362,12 +377,6 @@ router.post('/create', async (req, res) => {
                     amount: paymentData.amount,
                     status: payment.status,
                     mode: payment.mode
-                },
-                auth: {
-                    access_token: tokenData.access_token,
-                    token_type: tokenData.token_type,
-                    mode: tokenData.mode,
-                    api_base_url: tokenData.api_base_url
                 }
             });
         });
