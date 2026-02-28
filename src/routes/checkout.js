@@ -9,6 +9,15 @@ const router = express.Router();
 const { supabase } = require('../db/supabase');
 const env = require('../db/env');
 
+function getMoncashErrorDetails(error) {
+    return {
+        message: error?.message,
+        httpStatusCode: error?.httpStatusCode,
+        response: error?.response,
+        stack: error?.stack
+    };
+}
+
 router.get('/checkout', async (req, res) => {
     try {
         const { orderId } = req.query;
@@ -90,9 +99,12 @@ router.get('/checkout', async (req, res) => {
             orderId: order.order_number  // Use order_number instead of UUID (MonCash expects short numeric/alphanumeric)
         };
 
+        console.log('[Checkout] MonCash payment payload:', paymentData);
+
         moncash.payment.create(paymentData, function(error, payment) {
             if (error) {
-                console.error('[Checkout] Error creating payment:', error.message);
+                const errorDetails = getMoncashErrorDetails(error);
+                console.error('[Checkout] Error creating payment:', errorDetails);
                 return res.status(500).type('text/html').send(`
                     <!DOCTYPE html>
                     <html>
@@ -106,7 +118,7 @@ router.get('/checkout', async (req, res) => {
                     </head>
                     <body>
                         <div class="error">Erreur lors de la création du paiement Moncash</div>
-                        <p>${error.message}</p>
+                        <p>${error.response?.message || error.message}</p>
                         <p><a href="https://tishop.co">Retour à l'accueil</a></p>
                     </body>
                     </html>

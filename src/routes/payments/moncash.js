@@ -7,6 +7,17 @@ const env = require('../../db/env');
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
+async function getOrderByIdOrOrderNumber(orderIdentifier) {
+    const { data, error } = await supabase
+        .from('orders')
+        .select('id, order_number, total_amount, customer_email')
+        .or(`id.eq.${orderIdentifier},order_number.eq.${orderIdentifier}`)
+        .limit(1)
+        .maybeSingle();
+
+    return { data, error };
+}
+
 /**
  * Helper: Mark order as paid with delivery codes
  * Prevents duplicate code generation on retries
@@ -230,11 +241,7 @@ router.get('/return', async (req, res) => {
         }
 
         // Fetch order to verify it exists and get its amount
-        const { data: order, error: orderError } = await supabase
-            .from('orders')
-            .select('id, order_number, total_amount, customer_email')
-            .eq('id', order_id)
-            .maybeSingle();
+        const { data: order, error: orderError } = await getOrderByIdOrOrderNumber(order_id);
 
         if (orderError || !order) {
             console.error('[Moncash Return] Order not found:', order_id);
@@ -327,11 +334,7 @@ router.post('/webhook', async (req, res) => {
             }
 
             // Verify order amount
-            const { data: order } = await supabase
-                .from('orders')
-                .select('id, total_amount')
-                .eq('id', order_id)
-                .maybeSingle();
+            const { data: order } = await getOrderByIdOrOrderNumber(order_id);
 
             if (!order) {
                 console.error('[Moncash Webhook] Order not found:', order_id);
