@@ -196,11 +196,20 @@ router.get('/', (req, res) => {
         
         <div class="info-box">
             <div class="info-label">Test Amount:</div>
-            <div class="info-value" id="amount">100 HTG</div>
+            <div class="info-value" id="amount">100</div>
+        </div>
+        
+        <div class="info-box">
+            <div class="info-label">MonCash Phone Number (for MerchantApi):</div>
+            <input type="text" id="phoneNumber" placeholder="50938662809" 
+                   style="width: 100%; padding: 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 16px;" />
         </div>
         
         <button id="payButton" onclick="createPayment()">
-            Create Test Payment
+            Create Test Payment (Plugin API)
+        </button>
+        <button id="merchantButton" onclick="createMerchantPayment()" style="margin-top: 10px; background: #10b981;">
+            Test MerchantApi Payment
         </button>
         <button id="tokenButton" onclick="showToken()" style="margin-top: 10px; background: #111827;">
             Show OAuth Token
@@ -321,7 +330,81 @@ router.get('/', (req, res) => {
                     '<div class="result-title">❌ Error</div>' +
                     '<div class="result-content">' + error.message + '</div>';
                 button.disabled = false;
-                button.innerHTML = 'Create Test Payment';
+                button.innerHTML = 'Create Test Payment (Plugin API)';
+            }
+        }
+
+        async function createMerchantPayment() {
+            const button = document.getElementById('merchantButton');
+            const result = document.getElementById('result');
+            const orderId = document.getElementById('orderId').textContent;
+            const amount = parseFloat(document.getElementById('amount').textContent);
+            const phoneNumber = document.getElementById('phoneNumber').value.trim();
+
+            if (!phoneNumber) {
+                result.className = 'result error';
+                result.innerHTML =
+                    '<div class="result-title">❌ Validation Error</div>' +
+                    '<div class="result-content">Please enter a MonCash phone number (e.g., 50938662809)</div>';
+                return;
+            }
+
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner"></span>Processing Payment (waits up to 2 min)...';
+            result.style.display = 'none';
+            result.className = 'result';
+
+            try {
+                const response = await fetch('/api/test-payment/merchant', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        orderId, 
+                        amount,
+                        account: phoneNumber
+                    })
+                });
+
+                const responseText = await response.text();
+                console.log('Merchant Response:', responseText);
+
+                if (!response.ok) {
+                    let errorMsg = 'Failed to process merchant payment';
+                    try {
+                        const errorData = JSON.parse(responseText);
+                        errorMsg = errorData.error || errorData.details?.message || errorData.details || errorMsg;
+                    } catch {
+                        errorMsg = responseText.substring(0, 200);
+                    }
+                    throw new Error(errorMsg);
+                }
+
+                const data = JSON.parse(responseText);
+
+                result.className = 'result success';
+                result.innerHTML =
+                    '<div class="result-title">✅ MerchantApi Payment ' + (data.success ? 'Successful' : 'Pending') + '!</div>' +
+                    '<div class="result-content">' +
+                    '<strong>Reference:</strong> ' + data.data.reference + '<br>' +
+                    '<strong>Amount:</strong> ' + data.data.amount + ' HTG<br>' +
+                    '<strong>Account:</strong> ' + data.data.account + '<br>' +
+                    '<strong>Transaction ID:</strong> ' + (data.data.transactionId || 'Pending') + '<br>' +
+                    '<strong>Status:</strong> ' + data.data.status + '<br>' +
+                    '<strong>Message:</strong> ' + (data.data.message || 'N/A') + '<br>' +
+                    '<strong>Mode:</strong> ' + data.data.mode + '<br>' +
+                    '</div>';
+
+            } catch (error) {
+                console.error('Merchant Error:', error);
+                result.className = 'result error';
+                result.innerHTML =
+                    '<div class="result-title">❌ MerchantApi Error</div>' +
+                    '<div class="result-content">' + error.message + '</div>';
+            } finally {
+                button.disabled = false;
+                button.innerHTML = 'Test MerchantApi Payment';
             }
         }
 
@@ -438,6 +521,69 @@ router.post('/create', async (req, res) => {
         });
     } catch (error) {
         console.error('[Test Payment] Unexpected error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /api/test-payment/merchant
+ * Test MonCash MerchantApi payment flow
+ */
+router.post('/merchant', async (req, res) => {
+    try {
+        const { orderId, amount, account } = req.body;
+
+        if (!orderId || !amount || !account) {
+            return res.status(400).json({ error: 'orderId, amount, and account (phone number) are required' });
+        }
+
+        console.log('[Test Payment Merchant] Creating merchant payment:', { orderId, amount, account });
+
+        const paymentData = {
+            reference: String(orderId),
+            amount: parseFloat(amount),
+            account: String(account)
+        };
+
+        moncash.merchant.payment(paymentData, function(error, payment) {
+            if (error) {
+                const errorInfo = getMoncashErrorInfo(error);
+                console.error('[Test Payment Merchant] Error:', error);
+                return res.status(errorInfo.status).json({ 
+                    error: errorInfo.message,
+                    details: {
+                        path: error.response?.path,
+                        error: error.response?.error,
+                        message: errorInfo.providerMessage,
+                        timestamp: error.response?.timestamp,
+                        status: errorInfo.providerStatus
+                    }
+                });
+            }
+
+            if (!payment) {
+                console.error('[Test Payment Merchant] Invalid payment response:', payment);
+                return res.status(500).json({ error: 'Invalid MonCash MerchantApi response' });
+            }
+
+            console.log('[Test Payment Merchant] Payment processed:', payment);
+
+            return res.json({ 
+                success: payment.success,
+                data: {
+                    reference: payment.reference,
+                    transactionId: payment.transactionId,
+                    account: payment.account,
+                    amount: payment.amount,
+                    status: payment.status,
+                    message: payment.message,
+                    mode: payment.mode,
+                    timestamp: payment.timestamp
+                }
+            });
+        });
+    } catch (error) {
+        console.error('[Test Payment Merchant] Unexpected error:', error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 });

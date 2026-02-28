@@ -50,6 +50,13 @@ const getApiBaseUrl = (mode) => {
         : 'https://sandbox.moncashbutton.digicelgroup.com/Api';
 };
 
+// Get base domain URL (without /Api suffix)
+const getBaseUrl = (mode) => {
+    return mode === 'live' 
+        ? 'https://moncashbutton.digicelgroup.com'
+        : 'https://sandbox.moncashbutton.digicelgroup.com';
+};
+
 // Get gateway URL for redirects
 const getGatewayUrl = (mode) => {
     return mode === 'live'
@@ -58,6 +65,7 @@ const getGatewayUrl = (mode) => {
 };
 
 const API_BASE_URL = getApiBaseUrl(config.mode);
+const BASE_URL = getBaseUrl(config.mode);
 const GATEWAY_URL = getGatewayUrl(config.mode);
 
 function toUrlSafeBase64(buffer) {
@@ -350,6 +358,164 @@ const moncash = {
                     callback(null, response.data);
                 }
                 return response.data;
+            } catch (error) {
+                const errorObj = {
+                    message: error.response?.data?.message || error.message,
+                    response: error.response?.data,
+                    httpStatusCode: error.response?.status
+                };
+                
+                if (callback) {
+                    callback(errorObj, null);
+                } else {
+                    throw errorObj;
+                }
+            }
+        }
+    },
+
+    merchant: {
+        // MerchantApi V1 - Payment (auto-polling for 2 minutes)
+        payment: async function(paymentData, callback) {
+            try {
+                const token = await generateToken();
+                
+                const response = await axios.post(
+                    `${BASE_URL}/MerChantApi/V1/Payment`,
+                    {
+                        reference: String(paymentData.reference || paymentData.orderId),
+                        account: String(paymentData.account),
+                        amount: parseFloat(paymentData.amount)
+                    },
+                    {
+                        timeout: 150000, // 2.5 minutes (API polls for 2 minutes)
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                const normalized = {
+                    success: response.data.status === 200,
+                    mode: response.data.mode,
+                    reference: response.data.reference,
+                    transactionId: response.data.transactionId,
+                    account: response.data.account,
+                    amount: response.data.amount,
+                    timestamp: response.data.timestamp,
+                    status: response.data.status,
+                    raw: response.data
+                };
+
+                if (callback) {
+                    callback(null, normalized);
+                }
+                return normalized;
+            } catch (error) {
+                const errorObj = {
+                    message: error.response?.data?.message || error.message,
+                    response: error.response?.data,
+                    httpStatusCode: error.response?.status
+                };
+                
+                if (callback) {
+                    callback(errorObj, null);
+                } else {
+                    throw errorObj;
+                }
+            }
+        },
+
+        // MerchantApi V1 - InitiatePayment (returns pending, requires manual polling)
+        initiatePayment: async function(paymentData, callback) {
+            try {
+                const token = await generateToken();
+                
+                const response = await axios.post(
+                    `${BASE_URL}/MerChantApi/V1/InitiatePayment`,
+                    {
+                        reference: String(paymentData.reference || paymentData.orderId),
+                        account: String(paymentData.account),
+                        amount: parseFloat(paymentData.amount)
+                    },
+                    {
+                        timeout: 20000,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                const normalized = {
+                    success: response.data.status === 201,
+                    mode: response.data.mode,
+                    reference: response.data.reference,
+                    message: response.data.message,
+                    transactionId: response.data.transactionId,
+                    timestamp: response.data.timestamp,
+                    status: response.data.status,
+                    raw: response.data
+                };
+
+                if (callback) {
+                    callback(null, normalized);
+                }
+                return normalized;
+            } catch (error) {
+                const errorObj = {
+                    message: error.response?.data?.message || error.message,
+                    response: error.response?.data,
+                    httpStatusCode: error.response?.status
+                };
+                
+                if (callback) {
+                    callback(errorObj, null);
+                } else {
+                    throw errorObj;
+                }
+            }
+        },
+
+        // MerchantApi V1 - CheckPayment
+        checkPayment: async function(query, callback) {
+            try {
+                const token = await generateToken();
+                
+                const body = query.transactionId 
+                    ? { transactionId: String(query.transactionId) }
+                    : { reference: String(query.reference) };
+                
+                const response = await axios.post(
+                    `${BASE_URL}/MerChantApi/V1/CheckPayment`,
+                    body,
+                    {
+                        timeout: 20000,
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+
+                const normalized = {
+                    success: response.data.status === 200,
+                    mode: response.data.mode,
+                    reference: response.data.reference,
+                    message: response.data.message,
+                    transactionId: response.data.transactionId,
+                    account: response.data.account,
+                    amount: response.data.amount,
+                    timestamp: response.data.timestamp,
+                    status: response.data.status,
+                    raw: response.data
+                };
+
+                if (callback) {
+                    callback(null, normalized);
+                }
+                return normalized;
             } catch (error) {
                 const errorObj = {
                     message: error.response?.data?.message || error.message,
