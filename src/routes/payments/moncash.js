@@ -173,7 +173,7 @@ router.post('/initiate', generalLimiter, async (req, res) => {
         
         const paymentData = {
             amount: order.total_amount,
-            orderId: order.id.toString()
+            orderId: order.order_number  // Use order_number instead of UUID
         };
 
         console.log('[Moncash Initiate] Creating payment for order:', paymentData);

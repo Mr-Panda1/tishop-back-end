@@ -87,7 +87,7 @@ router.get('/checkout', async (req, res) => {
         
         const paymentData = {
             amount: order.total_amount,
-            orderId: order.id
+            orderId: order.order_number  // Use order_number instead of UUID (MonCash expects short numeric/alphanumeric)
         };
 
         moncash.payment.create(paymentData, function(error, payment) {
