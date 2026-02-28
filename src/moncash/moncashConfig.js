@@ -399,4 +399,13 @@ console.log('[Moncash Config] ⚠️  Make sure these match your MonCash busines
 console.log('[Moncash Config]   - Mode (sandbox/live) must match your credentials');
 console.log('[Moncash Config]   - Return URL must match exactly: ' + moncashReturnUrl);
 
+// Export utilities for use in other modules
+moncash.utils = {
+    toPublicKeyPem,
+    rsaEncryptNoPadding,
+    toUrlSafeBase64,
+    looksLikePublicKey,
+    looksLikeBusinessKey
+};
+
 module.exports = moncash;

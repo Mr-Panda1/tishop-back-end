@@ -206,6 +206,15 @@ router.get('/', (req, res) => {
             Show OAuth Token
         </button>
         
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+            <h3 style="font-size: 16px; color: #2d3748; margin-bottom: 12px;">🔌 Plugin Form Test</h3>
+            <form id="pluginForm" method="post" action="https://sandbox.moncashbutton.digicelgroup.com/Moncash-middlewareTest/Checkout/Y1ZKRVpVMHlVbTV2UW1zOSBlbkZPU1hwM1QwZExYMEZEVUY5QlQzZDFOV1JNWnowOQ==" style="background: #f7fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                <input type="hidden" id="pluginOrderId" name="orderId" value=""/>
+                <input type="hidden" id="pluginAmount" name="amount" value=""/>
+                <input type="image" name="ap_image" src="https://sandbox.moncashbutton.digicelgroup.com/Moncash-middlewareTest/resources/assets/images/MC_button.png" style="cursor: pointer;" onclick="submitPluginForm(event)"/>
+            </form>
+        </div>
+        
         <div id="result" class="result"></div>
         
         <div class="warning">
@@ -315,6 +324,53 @@ router.get('/', (req, res) => {
                 button.innerHTML = 'Create Test Payment';
             }
         }
+
+        async function submitPluginForm(e) {
+            e.preventDefault();
+            const orderId = document.getElementById('orderId').textContent;
+            const amount = parseFloat(document.getElementById('amount').textContent);
+            const result = document.getElementById('result');
+
+            try {
+                // Call backend to get encrypted values
+                const response = await fetch('/api/test-payment/encrypt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId, amount })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Encryption failed');
+                }
+
+                const data = await response.json();
+                
+                // Populate form fields
+                document.getElementById('pluginOrderId').value = data.encryptedOrderId;
+                document.getElementById('pluginAmount').value = data.encryptedAmount;
+
+                result.className = 'result success';
+                result.innerHTML =
+                    '<div class="result-title">✅ Plugin Form Ready!</div>' +
+                    '<div class="result-content">' +
+                    '<strong>Encrypted Order ID:</strong><br>' +
+                    '<span style="word-break: break-all; font-size: 12px; font-family: monospace;">' + data.encryptedOrderId + '</span><br><br>' +
+                    '<strong>Encrypted Amount:</strong><br>' +
+                    '<span style="word-break: break-all; font-size: 12px; font-family: monospace;">' + data.encryptedAmount + '</span><br><br>' +
+                    '<em>Redirecting to MonCash in 2 seconds...</em>' +
+                    '</div>';
+
+                // Submit form after delay
+                setTimeout(() => {
+                    document.getElementById('pluginForm').submit();
+                }, 2000);
+            } catch (error) {
+                result.className = 'result error';
+                result.innerHTML =
+                    '<div class="result-title">❌ Encryption Error</div>' +
+                    '<div class="result-content">' + error.message + '</div>';
+            }
+        }
     </script>
 </body>
 </html>
@@ -382,6 +438,44 @@ router.post('/create', async (req, res) => {
         });
     } catch (error) {
         console.error('[Test Payment] Unexpected error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /api/test-payment/encrypt
+ * Encrypt order ID and amount for plugin form submission
+ */
+router.post('/encrypt', async (req, res) => {
+    try {
+        const { orderId, amount } = req.body;
+
+        if (!orderId || !amount) {
+            return res.status(400).json({ error: 'orderId and amount are required' });
+        }
+
+        try {
+            const moncashPluginPublicKey = process.env.MONCASH_PLUGIN_PUBLIC_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
+            
+            if (!moncashPluginPublicKey) {
+                return res.status(500).json({ error: 'Missing RSA public key configuration' });
+            }
+
+            const publicKeyPem = moncash.utils.toPublicKeyPem(moncashPluginPublicKey);
+            const encryptedOrderId = moncash.utils.rsaEncryptNoPadding(String(orderId), publicKeyPem);
+            const encryptedAmount = moncash.utils.rsaEncryptNoPadding(String(amount), publicKeyPem);
+
+            return res.json({
+                encryptedOrderId,
+                encryptedAmount,
+                businessKey: process.env.MONCASH_PLUGIN_BUSINESS_KEY || process.env.MONCASH_BUSINESS_KEY
+            });
+        } catch (encryptError) {
+            console.error('[Test Payment Encrypt] Encryption error:', encryptError);
+            return res.status(500).json({ error: 'Encryption failed', message: encryptError.message });
+        }
+    } catch (error) {
+        console.error('[Test Payment Encrypt] Unexpected error:', error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
