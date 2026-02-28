@@ -153,8 +153,10 @@ function rsaEncryptNoPadding(value, publicKeyPem) {
 // Token cache
 let tokenCache = null;
 let tokenExpiry = null;
+let merchantTokenCache = null;
+let merchantTokenExpiry = null;
 
-// Generate OAuth token
+// Generate OAuth token for Button/Plugin APIs
 async function generateToken() {
     // Return cached token if still valid
     if (tokenCache && tokenExpiry && Date.now() < tokenExpiry) {
@@ -186,6 +188,41 @@ async function generateToken() {
     } catch (error) {
         console.error('[Moncash] Token generation failed:', error.response?.data || error.message);
         throw new Error('Failed to generate MonCash token');
+    }
+}
+
+// Generate OAuth token for MerchantApi
+async function generateMerchantToken() {
+    // Return cached token if still valid
+    if (merchantTokenCache && merchantTokenExpiry && Date.now() < merchantTokenExpiry) {
+        return merchantTokenCache;
+    }
+
+    try {
+        const response = await axios.post(
+            `${BASE_URL}/MerChantApi/oauth/token`,
+            'scope=read,write&grant_type=client_credentials',
+            {
+                timeout: 15000,
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                auth: {
+                    username: config.client_id,
+                    password: config.client_secret
+                }
+            }
+        );
+
+        merchantTokenCache = response.data.access_token;
+        const expiresInMs = Math.max(((response.data.expires_in || 59) - 5) * 1000, 1000);
+        merchantTokenExpiry = Date.now() + expiresInMs;
+        
+        console.log('[Moncash MerchantApi] OAuth token generated successfully');
+        return merchantTokenCache;
+    } catch (error) {
+        console.error('[Moncash MerchantApi] Token generation failed:', error.response?.data || error.message);
+        throw new Error('Failed to generate MonCash MerchantApi token');
     }
 }
 
@@ -378,7 +415,7 @@ const moncash = {
         // MerchantApi V1 - Payment (auto-polling for 2 minutes)
         payment: async function(paymentData, callback) {
             try {
-                const token = await generateToken();
+                const token = await generateMerchantToken();
                 
                 const response = await axios.post(
                     `${BASE_URL}/MerChantApi/V1/Payment`,
@@ -430,7 +467,7 @@ const moncash = {
         // MerchantApi V1 - InitiatePayment (returns pending, requires manual polling)
         initiatePayment: async function(paymentData, callback) {
             try {
-                const token = await generateToken();
+                const token = await generateMerchantToken();
                 
                 const response = await axios.post(
                     `${BASE_URL}/MerChantApi/V1/InitiatePayment`,
@@ -481,7 +518,7 @@ const moncash = {
         // MerchantApi V1 - CheckPayment
         checkPayment: async function(query, callback) {
             try {
-                const token = await generateToken();
+                const token = await generateMerchantToken();
                 
                 const body = query.transactionId 
                     ? { transactionId: String(query.transactionId) }
