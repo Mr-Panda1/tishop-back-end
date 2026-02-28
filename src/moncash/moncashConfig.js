@@ -87,7 +87,13 @@ function looksLikePublicKey(value) {
         return false;
     }
 
-    return value.includes('BEGIN PUBLIC KEY') || /^[A-Za-z0-9+/=\s]+$/.test(value);
+    // RSA keys have specific characteristics:
+    // 1. Have PEM BEGIN/END markers, OR
+    // 2. DER-encoded RSA keys (base64) typically start with MD (30 in hex = MD in base64)
+    //    Common prefixes: MDww, MDcw, MIIx, MIIC, etc.
+    const trimmed = value.trim();
+    return trimmed.includes('BEGIN PUBLIC KEY') 
+        || /^M(D|II)[A-Za-z0-9+/]/.test(trimmed);
 }
 
 function looksLikeBusinessKey(value) {
@@ -95,7 +101,12 @@ function looksLikeBusinessKey(value) {
         return false;
     }
 
-    return /^[A-Za-z0-9_-]{6,128}$/.test(value);
+    // Business key is base64 or alphanumeric, typically 20-100+ chars
+    const normalized = value.replace(/\s+/g, '');
+    const isValidFormat = /^[A-Za-z0-9+/=_-]+$/.test(normalized);
+    const isReasonableLength = normalized.length >= 16 && normalized.length <= 300;
+    
+    return isValidFormat && isReasonableLength;
 }
 
 function rsaEncryptNoPadding(value, publicKeyPem) {
