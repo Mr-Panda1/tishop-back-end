@@ -1,13 +1,12 @@
 /**
  * GET /checkout
- * Payment checkout page served from pay.tishop.co
- * Initiates MonCash payment when user visits this page
+ * Loads the checkout page (pay.tishop.co)
+ * Does NOT initiate MonCash payment yet - waits for frontend to request it
  */
 
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../db/supabase');
-const env = require('../db/env');
 
 function getMoncashErrorDetails(error) {
     return {
@@ -42,7 +41,6 @@ router.get('/checkout', async (req, res) => {
             `);
         }
 
-        // Fetch order
         const { data: order, error: orderError } = await supabase
             .from('orders')
             .select('id, order_number, total_amount, status')
@@ -89,31 +87,18 @@ router.get('/checkout', async (req, res) => {
             `);
         }
 
-        // Initiate MonCash payment (request comes FROM pay.tishop.co server)
-        console.log('[Checkout] Initiating MonCash payment for order:', orderId);
-        
-        const moncash = require('../moncash/moncashConfig');
-        
-        const paymentData = {
-            amount: order.total_amount,
-            orderId: order.order_number  // Use order_number instead of UUID (MonCash expects short numeric/alphanumeric)
-        };
+        console.log('[Checkout] Loading checkout page for order:', orderId);
 
-        console.log('[Checkout] MonCash payment payload:', paymentData);
-
-        // Return a loading page while we wait before initiating MonCash payment
-        const DELAY_MS = 2000; // 2 second delay - adjust as needed (e.g., 3000 for 3 seconds)
-        
         res.type('text/html').send(`
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="UTF-8">
-                <title>Paiement en cours</title>
+                <title>Paiement</title>
                 <style>
-                    body { 
-                        font-family: Arial, sans-serif; 
-                        text-align: center; 
+                    body {
+                        font-family: Arial, sans-serif;
+                        text-align: center;
                         padding: 50px;
                         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                         min-height: 100vh;
@@ -129,64 +114,110 @@ router.get('/checkout', async (req, res) => {
                         box-shadow: 0 10px 25px rgba(0,0,0,0.2);
                         max-width: 400px;
                     }
+                    .message {
+                        color: #333;
+                        font-size: 18px;
+                        font-weight: 500;
+                        margin-bottom: 30px;
+                    }
+                    .amount {
+                        color: #667eea;
+                        font-size: 32px;
+                        font-weight: bold;
+                        margin: 20px 0;
+                    }
+                    .btn {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border: none;
+                        padding: 12px 30px;
+                        font-size: 16px;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        margin-top: 20px;
+                        transition: transform 0.2s;
+                    }
+                    .btn:hover {
+                        transform: scale(1.05);
+                    }
+                    .btn:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                        transform: scale(1);
+                    }
                     .spinner {
-                        border: 4px solid #f3f3f3;
-                        border-top: 4px solid #667eea;
+                        border: 3px solid #f3f3f3;
+                        border-top: 3px solid #667eea;
                         border-radius: 50%;
-                        width: 40px;
-                        height: 40px;
+                        width: 30px;
+                        height: 30px;
                         animation: spin 1s linear infinite;
-                        margin: 0 auto 20px;
+                        margin: 12px auto 0;
+                        display: none;
                     }
                     @keyframes spin {
                         0% { transform: rotate(0deg); }
                         100% { transform: rotate(360deg); }
                     }
-                    .message { 
-                        color: #333; 
-                        font-size: 18px;
-                        font-weight: 500;
-                    }
-                    .submessage {
-                        color: #666;
-                        font-size: 14px;
+                    .error {
+                        color: #d32f2f;
                         margin-top: 10px;
                     }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <div class="spinner"></div>
-                    <div class="message">Redirection vers MonCash...</div>
-                    <div class="submessage">Veuillez patienter</div>
+                    <div class="message">Montant à payer</div>
+                    <div class="amount">$${order.total_amount}</div>
+                    <button class="btn" id="payBtn" onclick="initiateMoncashPayment()">
+                        Passer au paiement MonCash
+                    </button>
+                    <div class="spinner" id="spinner"></div>
+                    <div class="error" id="error"></div>
                 </div>
                 <script>
-                    console.log('[Checkout] Payment page loaded, waiting ${DELAY_MS}ms before redirect');
+                    const orderId = '${orderId}';
+
+                    async function initiateMoncashPayment() {
+                        const btn = document.getElementById('payBtn');
+                        const spinner = document.getElementById('spinner');
+                        const error = document.getElementById('error');
+
+                        btn.disabled = true;
+                        spinner.style.display = 'block';
+                        error.textContent = '';
+
+                        try {
+                            const response = await fetch('/api/checkout/initiate-payment', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ orderId })
+                            });
+
+                            const data = await response.json();
+
+                            if (!response.ok) {
+                                throw new Error(data.error || 'Payment initiation failed');
+                            }
+
+                            if (data.redirectUri) {
+                                setTimeout(() => {
+                                    window.location.href = data.redirectUri;
+                                }, 2000);
+                                return;
+                            }
+
+                            throw new Error('No redirect URI');
+                        } catch (err) {
+                            error.textContent = 'Erreur: ' + err.message;
+                            btn.disabled = false;
+                            spinner.style.display = 'none';
+                        }
+                    }
                 </script>
             </body>
             </html>
         `);
-
-        // Wait for the delay, then create and process the MonCash payment
-        setTimeout(() => {
-            console.log('[Checkout] Delay complete, initiating MonCash payment');
-            
-            moncash.payment.create(paymentData, function(error, payment) {
-                if (error) {
-                    const errorDetails = getMoncashErrorDetails(error);
-                    console.error('[Checkout] Error creating payment:', errorDetails);
-                    return;
-                }
-
-                if (!payment || !payment.payment_token) {
-                    console.error('[Checkout] Invalid payment response:', payment);
-                    return;
-                }
-
-                console.log('[Checkout] Payment created, would redirect to MonCash:', moncash.payment.redirect_uri(payment));
-            });
-        }, DELAY_MS);
-
     } catch (error) {
         console.error('[Checkout] Unexpected error:', error);
         res.status(500).type('text/html').send(`
@@ -206,6 +237,63 @@ router.get('/checkout', async (req, res) => {
             </body>
             </html>
         `);
+    }
+});
+
+/**
+ * POST /api/checkout/initiate-payment
+ * Called by the frontend (pay.tishop.co) when user clicks the pay button
+ * Initiates MonCash payment and returns redirect URI
+ */
+router.post('/api/checkout/initiate-payment', async (req, res) => {
+    try {
+        const { orderId } = req.body;
+
+        if (!orderId) {
+            return res.status(400).json({ error: 'Missing orderId' });
+        }
+
+        console.log('[API] Initiating MonCash payment for order:', orderId);
+
+        const { data: order, error: orderError } = await supabase
+            .from('orders')
+            .select('id, order_number, total_amount, status')
+            .eq('id', orderId)
+            .maybeSingle();
+
+        if (orderError || !order) {
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        if (order.status === 'paid') {
+            return res.status(400).json({ error: 'Order already paid' });
+        }
+
+        const moncash = require('../moncash/moncashConfig');
+
+        const paymentData = {
+            amount: order.total_amount,
+            orderId: order.order_number
+        };
+
+        moncash.payment.create(paymentData, function(error, payment) {
+            if (error) {
+                const errorDetails = getMoncashErrorDetails(error);
+                console.error('[API] Error creating payment:', errorDetails);
+                return res.status(500).json({ error: error.response?.message || error.message });
+            }
+
+            if (!payment || !payment.payment_token) {
+                console.error('[API] Invalid payment response:', payment);
+                return res.status(500).json({ error: 'Invalid MonCash response' });
+            }
+
+            const redirectUri = moncash.payment.redirect_uri(payment);
+            return res.json({ success: true, redirectUri });
+        });
+    } catch (error) {
+        console.error('[API] Unexpected error:', error);
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
