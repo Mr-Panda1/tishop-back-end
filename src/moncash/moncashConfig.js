@@ -1,19 +1,24 @@
-const env = require('../db/env');
 const axios = require('axios');
 
-console.log('[Moncash Config] Loaded credentials:');
-console.log('[Moncash Config] Client ID:', env.clientId ? `${env.clientId.substring(0, 8)}...` : 'MISSING');
-console.log('[Moncash Config] Client Secret:', env.clientsecret ? `${env.clientsecret.substring(0, 8)}...` : 'MISSING');
-console.log('[Moncash Config] Mode:', env.moncashMode);
+const moncashMode = process.env.MONCASH_MODE || 'sandbox';
+const moncashClientId = process.env.MONCASH_CLIENT_ID || '2fd21ecb4a736cc2a82fc6d9fcc8739a';
+const moncashClientSecret = process.env.MONCASH_CLIENT_SECRET || 'cC2YgozrT66gdI5pFzrYRhBBRr8UQpWHOiCBiXgQ1I0kKbwNPd87fy64m_w04dQs';
+const moncashReturnUrl = process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return';
+const moncashWebhookUrl = process.env.MONCASH_WEBHOOK_URL || 'https://pay.tishop.co/api/moncash/webhook';
 
-console.log('[Moncash Config] Return URL:', env.moncashReturnUrl);
-console.log('[Moncash Config] Webhook URL:', env.moncashWebhookUrl);
+console.log('[Moncash Config] Loaded credentials:');
+console.log('[Moncash Config] Client ID:', moncashClientId ? `${moncashClientId.substring(0, 8)}...` : 'MISSING');
+console.log('[Moncash Config] Client Secret:', moncashClientSecret ? `${moncashClientSecret.substring(0, 8)}...` : 'MISSING');
+console.log('[Moncash Config] Mode:', moncashMode);
+
+console.log('[Moncash Config] Return URL:', moncashReturnUrl);
+console.log('[Moncash Config] Webhook URL:', moncashWebhookUrl);
 
 // Configuration
 const config = {
-    mode: env.moncashMode || 'sandbox',
-    client_id: env.clientId,
-    client_secret: env.clientsecret
+    mode: moncashMode,
+    client_id: moncashClientId,
+    client_secret: moncashClientSecret
 };
 
 // Get API base URL based on mode
@@ -156,12 +161,39 @@ const moncash = {
                 }
             }
         }
+    },
+
+    debug: {
+        getAccessToken: async function(forceRefresh = false) {
+            if (forceRefresh) {
+                tokenCache = null;
+                tokenExpiry = null;
+            }
+
+            const token = await generateToken();
+            return {
+                access_token: token,
+                token_type: 'bearer',
+                expires_at: tokenExpiry,
+                mode: config.mode,
+                api_base_url: API_BASE_URL
+            };
+        },
+
+        getConfig: function() {
+            return {
+                mode: config.mode,
+                client_id_preview: config.client_id ? `${config.client_id.substring(0, 8)}...` : 'MISSING',
+                api_base_url: API_BASE_URL,
+                gateway_url: GATEWAY_URL
+            };
+        }
     }
 };
 
 console.log('[Moncash Config] Moncash configured successfully (Axios-based client)');
 console.log('[Moncash Config] ⚠️  Make sure these match your MonCash business portal settings:');
 console.log('[Moncash Config]   - Mode (sandbox/live) must match your credentials');
-console.log('[Moncash Config]   - Return URL must match exactly: ' + env.moncashReturnUrl);
+console.log('[Moncash Config]   - Return URL must match exactly: ' + moncashReturnUrl);
 
 module.exports = moncash;
