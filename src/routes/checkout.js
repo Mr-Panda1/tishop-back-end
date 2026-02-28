@@ -101,58 +101,91 @@ router.get('/checkout', async (req, res) => {
 
         console.log('[Checkout] MonCash payment payload:', paymentData);
 
-        moncash.payment.create(paymentData, function(error, payment) {
-            if (error) {
-                const errorDetails = getMoncashErrorDetails(error);
-                console.error('[Checkout] Error creating payment:', errorDetails);
-                return res.status(500).type('text/html').send(`
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="UTF-8">
-                        <title>Erreur de paiement</title>
-                        <style>
-                            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                            .error { color: #d32f2f; font-size: 18px; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="error">Erreur lors de la création du paiement Moncash</div>
-                        <p>${error.response?.message || error.message}</p>
-                        <p><a href="https://tishop.co">Retour à l'accueil</a></p>
-                    </body>
-                    </html>
-                `);
-            }
+        // Return a loading page while we wait before initiating MonCash payment
+        const DELAY_MS = 2000; // 2 second delay - adjust as needed (e.g., 3000 for 3 seconds)
+        
+        res.type('text/html').send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Paiement en cours</title>
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        text-align: center; 
+                        padding: 50px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        min-height: 100vh;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        margin: 0;
+                    }
+                    .container {
+                        background: white;
+                        padding: 40px;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                        max-width: 400px;
+                    }
+                    .spinner {
+                        border: 4px solid #f3f3f3;
+                        border-top: 4px solid #667eea;
+                        border-radius: 50%;
+                        width: 40px;
+                        height: 40px;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 20px;
+                    }
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                    .message { 
+                        color: #333; 
+                        font-size: 18px;
+                        font-weight: 500;
+                    }
+                    .submessage {
+                        color: #666;
+                        font-size: 14px;
+                        margin-top: 10px;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="spinner"></div>
+                    <div class="message">Redirection vers MonCash...</div>
+                    <div class="submessage">Veuillez patienter</div>
+                </div>
+                <script>
+                    console.log('[Checkout] Payment page loaded, waiting ${DELAY_MS}ms before redirect');
+                </script>
+            </body>
+            </html>
+        `);
 
-            if (!payment || !payment.payment_token) {
-                console.error('[Checkout] Invalid payment response:', payment);
-                return res.status(500).type('text/html').send(`
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="UTF-8">
-                        <title>Erreur de paiement</title>
-                        <style>
-                            body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                            .error { color: #d32f2f; font-size: 18px; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="error">Réponse Moncash invalide</div>
-                        <p><a href="https://tishop.co">Retour à l'accueil</a></p>
-                    </body>
-                    </html>
-                `);
-            }
+        // Wait for the delay, then create and process the MonCash payment
+        setTimeout(() => {
+            console.log('[Checkout] Delay complete, initiating MonCash payment');
+            
+            moncash.payment.create(paymentData, function(error, payment) {
+                if (error) {
+                    const errorDetails = getMoncashErrorDetails(error);
+                    console.error('[Checkout] Error creating payment:', errorDetails);
+                    return;
+                }
 
-            console.log('[Checkout] Payment created, redirecting to MonCash');
-            
-            const redirectUri = moncash.payment.redirect_uri(payment);
-            
-            // Redirect to MonCash gateway
-            res.redirect(redirectUri);
-        });
+                if (!payment || !payment.payment_token) {
+                    console.error('[Checkout] Invalid payment response:', payment);
+                    return;
+                }
+
+                console.log('[Checkout] Payment created, would redirect to MonCash:', moncash.payment.redirect_uri(payment));
+            });
+        }, DELAY_MS);
 
     } catch (error) {
         console.error('[Checkout] Unexpected error:', error);
