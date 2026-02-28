@@ -19,8 +19,8 @@ function normalizeMoncashMode(mode) {
 const moncashMode = normalizeMoncashMode(process.env.MONCASH_MODE);
 const moncashClientId = process.env.MONCASH_CLIENT_ID?.trim();
 const moncashClientSecret = process.env.MONCASH_CLIENT_SECRET?.trim();
-const moncashPluginBusinessKey = process.env.MONCASH_PLUGIN_BUSINESS_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
-const moncashPluginPublicKey = process.env.MONCASH_PLUGIN_PUBLIC_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
+const moncashPluginBusinessKey = process.env.MONCASH_PLUGIN_BUSINESS_KEY?.trim() || process.env.MONCASH_BUSINESS_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
+const moncashPluginPublicKey = process.env.MONCASH_PLUGIN_PUBLIC_KEY?.trim() || process.env.MONCASH_PUBLIC_KEY?.trim() || process.env.MONCASH_SECRET_KEY?.trim() || process.env.SECRET_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
 const moncashReturnUrl = process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return';
 const moncashWebhookUrl = process.env.MONCASH_WEBHOOK_URL || 'https://pay.tishop.co/api/moncash/webhook';
 
@@ -80,6 +80,22 @@ function toPublicKeyPem(rawKey) {
     const normalized = rawKey.replace(/\s+/g, '');
     const chunks = normalized.match(/.{1,64}/g) || [];
     return `-----BEGIN PUBLIC KEY-----\n${chunks.join('\n')}\n-----END PUBLIC KEY-----`;
+}
+
+function looksLikePublicKey(value) {
+    if (!value) {
+        return false;
+    }
+
+    return value.includes('BEGIN PUBLIC KEY') || /^[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
+function looksLikeBusinessKey(value) {
+    if (!value) {
+        return false;
+    }
+
+    return /^[A-Za-z0-9_-]{6,128}$/.test(value);
 }
 
 function rsaEncryptNoPadding(value, publicKeyPem) {
@@ -166,9 +182,24 @@ const moncash = {
                     };
                 }
 
+                if (!looksLikeBusinessKey(moncashPluginBusinessKey) || looksLikePublicKey(moncashPluginBusinessKey)) {
+                    throw {
+                        message: 'Invalid MonCash plugin business key. Use MONCASH_PLUGIN_BUSINESS_KEY (merchant key), not the RSA public key.',
+                        httpStatusCode: 500
+                    };
+                }
+
+                if (!looksLikePublicKey(moncashPluginPublicKey)) {
+                    throw {
+                        message: 'Invalid MonCash plugin public key. Set MONCASH_PLUGIN_PUBLIC_KEY with the RSA public key from MonCash.',
+                        httpStatusCode: 500
+                    };
+                }
+
                 const publicKeyPem = toPublicKeyPem(moncashPluginPublicKey);
                 const encryptedOrderId = rsaEncryptNoPadding(String(paymentData.orderId), publicKeyPem);
                 const encryptedAmount = rsaEncryptNoPadding(String(paymentData.amount), publicKeyPem);
+                const businessKeyPath = encodeURIComponent(moncashPluginBusinessKey);
 
                 const body = new URLSearchParams({
                     orderId: encryptedOrderId,
@@ -176,7 +207,7 @@ const moncash = {
                 }).toString();
 
                 const response = await axios.post(
-                    `${GATEWAY_URL}/Checkout/Rest/${moncashPluginBusinessKey}`,
+                    `${GATEWAY_URL}/Checkout/Rest/${businessKeyPath}`,
                     body,
                     {
                         timeout: 20000,
