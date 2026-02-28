@@ -107,6 +107,7 @@ app.use('/seller/orders', require('./routes/sellers/orders'));
 app.use('/seller', require('./routes/sellers/payout/payouts'));
 app.use('/api/payments', require('./routes/payments/payments'));
 app.use('/api/moncash', require('./routes/payments/moncash'));
+app.use('/api/test-payment', require('./routes/testPayment'));
 
 // customer
 // app.use('/api/customer/auth', require('./routes/customers/auth/auth'));
