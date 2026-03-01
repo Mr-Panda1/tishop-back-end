@@ -19,6 +19,8 @@ function normalizeMoncashMode(mode) {
 const moncashMode = normalizeMoncashMode(process.env.MONCASH_MODE);
 const moncashClientId = process.env.MONCASH_CLIENT_ID?.trim();
 const moncashClientSecret = process.env.MONCASH_CLIENT_SECRET?.trim();
+const moncashPortalUsername = process.env.MONCASH_PORTAL_USERNAME?.trim();
+const moncashPortalPassword = process.env.MONCASH_PORTAL_PASSWORD?.trim();
 const moncashPluginBusinessKey = process.env.MONCASH_PLUGIN_BUSINESS_KEY?.trim() || process.env.MONCASH_BUSINESS_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
 const moncashPluginPublicKey = process.env.MONCASH_PLUGIN_PUBLIC_KEY?.trim() || process.env.MONCASH_PUBLIC_KEY?.trim() || process.env.MONCASH_SECRET_KEY?.trim() || process.env.SECRET_KEY?.trim() || process.env.BUSINESS_KEY?.trim();
 const moncashReturnUrl = process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return';
@@ -31,6 +33,7 @@ if (!moncashClientId || !moncashClientSecret) {
 console.log('[Moncash Config] Loaded credentials:');
 console.log('[Moncash Config] Client ID:', moncashClientId ? `${moncashClientId.substring(0, 8)}...` : 'MISSING');
 console.log('[Moncash Config] Client Secret:', moncashClientSecret ? `${moncashClientSecret.substring(0, 8)}...` : 'MISSING');
+console.log('[Moncash Config] Portal Username:', moncashPortalUsername || 'NOT SET (required for MerchantApi)');
 console.log('[Moncash Config] Mode:', moncashMode);
 
 console.log('[Moncash Config] Return URL:', moncashReturnUrl);
@@ -199,6 +202,10 @@ async function generateMerchantToken() {
     }
 
     try {
+        // MerchantApi uses portal username/password, not client_id/client_secret
+        const portalUsername = moncashPortalUsername || 'tishopOnline';  // Hardcoded for testing
+        const portalPassword = moncashPortalPassword || 'AE1p9wY0m$';     // Hardcoded for testing
+        
         const response = await axios.post(
             `${BASE_URL}/MerChantApi/oauth/token`,
             'scope=read,write&grant_type=client_credentials',
@@ -208,8 +215,8 @@ async function generateMerchantToken() {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 },
                 auth: {
-                    username: config.client_id,
-                    password: config.client_secret
+                    username: portalUsername,
+                    password: portalPassword
                 }
             }
         );
