@@ -228,8 +228,13 @@ async function generateMerchantToken() {
         console.log('[Moncash MerchantApi] OAuth token generated successfully');
         return merchantTokenCache;
     } catch (error) {
-        console.error('[Moncash MerchantApi] Token generation failed:', error.response?.data || error.message);
-        throw new Error('Failed to generate MonCash MerchantApi token');
+        console.error('[Moncash MerchantApi] Token generation failed:');
+        console.error('[Moncash MerchantApi] Status:', error.response?.status);
+        console.error('[Moncash MerchantApi] Response:', JSON.stringify(error.response?.data, null, 2));
+        console.error('[Moncash MerchantApi] Error message:', error.message);
+        
+        const errorDetails = error.response?.data || error.message;
+        throw new Error(`Failed to generate MonCash MerchantApi token: ${JSON.stringify(errorDetails)}`);
     }
 }
 
