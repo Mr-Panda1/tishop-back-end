@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { supabase } = require('../../db/supabase');
 const { generalLimiter } = require('../../middlewares/limit');
+const upload = require('../../middlewares/uploadMiddleware');
+const sharp = require('sharp');
+const crypto = require('crypto');
+const { encryptFile, hashFile } = require('../../utils/encryption');
+
+const MANUAL_PAYMENT_BUCKET = 'customer_payment_proof';
+const PAYMENT_PROOF_IMAGE_WIDTH = 1200;
+const PAYMENT_PROOF_IMAGE_QUALITY = 80;
 
 const buildOrderNumber = () => {
     const now = new Date();
@@ -9,6 +17,55 @@ const buildOrderNumber = () => {
     const randomPart = Math.floor(100000 + Math.random() * 900000);
     return `TS-${datePart}-${randomPart}`;
 };
+
+// Upload manual payment proof image (encrypted, private bucket)
+router.post('/upload-manual-payment-proof', generalLimiter, upload.single('payment_proof'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'Image de preuve de paiement requise' });
+        }
+
+        const proofId = typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : crypto.randomBytes(16).toString('hex');
+
+        const dayPrefix = new Date().toISOString().slice(0, 10);
+        const filePath = `${dayPrefix}/${proofId}.enc`;
+
+        const webpBuffer = await sharp(req.file.buffer)
+            .resize(PAYMENT_PROOF_IMAGE_WIDTH, PAYMENT_PROOF_IMAGE_WIDTH, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: PAYMENT_PROOF_IMAGE_QUALITY })
+            .toBuffer();
+
+        const { encryptedData, iv, authTag } = encryptFile(webpBuffer);
+        const fileHash = hashFile(webpBuffer);
+
+        const { error: uploadError } = await supabase.storage
+            .from(MANUAL_PAYMENT_BUCKET)
+            .upload(filePath, encryptedData, { contentType: 'image/webp' });
+
+        if (uploadError) {
+            console.error('Error uploading manual payment proof:', uploadError);
+            return res.status(500).json({ message: 'Erreur lors de l\'upload de la preuve de paiement' });
+        }
+
+        return res.status(201).json({
+            message: 'Preuve de paiement uploadée avec succès',
+            data: {
+                path: filePath,
+                iv,
+                authTag,
+                hash: fileHash,
+                mimeType: 'image/webp',
+                originalName: req.file.originalname,
+                uploadedAt: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('Upload manual payment proof error:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
 
 // Customer place an order
 router.post('/create-order', generalLimiter, async (req, res) => {
@@ -23,8 +80,33 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             neighborhood,
             landmark,
             deliveryMethod = 'delivery',
+            paymentMethod = 'moncash',
+            manualPaymentProof,
             cartItems
         } = req.body;
+
+        if (!['moncash', 'manual'].includes(paymentMethod)) {
+            return res.status(400).json({ message: 'Méthode de paiement invalide' });
+        }
+
+        if (paymentMethod === 'manual') {
+            if (!manualPaymentProof || typeof manualPaymentProof !== 'object') {
+                return res.status(400).json({ message: 'Les informations de paiement manuel sont requises' });
+            }
+
+            if (!manualPaymentProof.transactionRef || !manualPaymentProof.senderPhone) {
+                return res.status(400).json({ message: 'La référence et le numéro expéditeur sont requis pour le paiement manuel' });
+            }
+
+            if (manualPaymentProof.paymentProof) {
+                const requiredProofFields = ['path', 'iv', 'authTag', 'hash', 'mimeType'];
+                for (const field of requiredProofFields) {
+                    if (!manualPaymentProof.paymentProof[field]) {
+                        return res.status(400).json({ message: 'Métadonnées de preuve de paiement incomplètes' });
+                    }
+                }
+            }
+        }
 
         if (!customerName || !customerEmail || !customerPhone) {
             return res.status(400).json({ message: 'Le nom, l\'adresse e-mail et le téléphone du client sont requis' });
@@ -195,6 +277,16 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             totalAmount += sellerTotal;
         }
 
+        let manualPaymentSubmittedAt = null;
+        if (paymentMethod === 'manual') {
+            const submittedDate = manualPaymentProof?.submittedAt
+                ? new Date(manualPaymentProof.submittedAt)
+                : new Date();
+            manualPaymentSubmittedAt = Number.isNaN(submittedDate.getTime())
+                ? new Date().toISOString()
+                : submittedDate.toISOString();
+        }
+
         const orderNumber = buildOrderNumber();
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
@@ -210,7 +302,21 @@ router.post('/create-order', generalLimiter, async (req, res) => {
                 neighborhood: neighborhood || null,
                 landmark,
                 total_amount: totalAmount,
-                status: 'pending'
+                status: 'pending',
+                payment_method: paymentMethod,
+                manual_payment_reference: paymentMethod === 'manual' ? String(manualPaymentProof.transactionRef).trim() : null,
+                manual_payment_sender_phone: paymentMethod === 'manual' ? String(manualPaymentProof.senderPhone).trim() : null,
+                manual_payment_screenshot_name: paymentMethod === 'manual'
+                    ? (manualPaymentProof?.paymentProof?.originalName
+                        ? String(manualPaymentProof.paymentProof.originalName).trim()
+                        : (manualPaymentProof.screenshotName ? String(manualPaymentProof.screenshotName).trim() : null))
+                    : null,
+                manual_payment_submitted_at: manualPaymentSubmittedAt,
+                manual_payment_proof_path: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.path || null) : null,
+                manual_payment_proof_iv: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.iv || null) : null,
+                manual_payment_proof_auth_tag: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.authTag || null) : null,
+                manual_payment_proof_hash: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.hash || null) : null,
+                manual_payment_proof_mime_type: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.mimeType || null) : null
             }])
             .select()
             .single();
@@ -285,7 +391,7 @@ router.get('/', generalLimiter, async (req, res) => {
 
         const { data: orders, error: ordersError } = await supabase
             .from('orders')
-            .select('id, order_number, customer_email, total_amount, status, created_at, updated_at')
+            .select('id, order_number, customer_email, total_amount, status, payment_method, created_at, updated_at')
             .eq('customer_email', email)
             .order('created_at', { ascending: false });
 
@@ -426,6 +532,7 @@ router.get('/', generalLimiter, async (req, res) => {
             id: order.id,
             order_number: order.order_number,
             created_at: order.created_at,
+            payment_method: order.payment_method,
             total: order.total_amount,
             seller_orders: (sellerOrdersByOrderId.get(order.id) || []).map(so => ({
                 id: so.id,
@@ -612,6 +719,14 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
             customer_name: order.customer_name,
             customer_email: order.customer_email,
             customer_phone: order.customer_phone,
+            payment_method: order.payment_method || 'moncash',
+            manual_payment: {
+                transaction_ref: order.manual_payment_reference || null,
+                sender_phone: order.manual_payment_sender_phone || null,
+                screenshot_name: order.manual_payment_screenshot_name || null,
+                submitted_at: order.manual_payment_submitted_at || null,
+                has_proof_file: !!order.manual_payment_proof_path
+            },
             subtotal: subtotal,
             total_delivery_fee: totalDeliveryFee,
             total: order.total_amount,

@@ -202,21 +202,23 @@ async function generateMerchantToken() {
     }
 
     try {
-        // MerchantApi uses portal username/password, not client_id/client_secret
-        const portalUsername = moncashPortalUsername || 'tishopOnline';  // Hardcoded for testing
-        const portalPassword = moncashPortalPassword || 'AE1p9wY0m$';     // Hardcoded for testing
+        // Try with REST API client_id/client_secret first (most likely to work)
+        const FormData = require('form-data');
+        const form = new FormData();
+        form.append('scope', 'read,write');
+        form.append('grant_type', 'client_credentials');
         
         const response = await axios.post(
             `${BASE_URL}/MerChantApi/oauth/token`,
-            'scope=read,write&grant_type=client_credentials',
+            form,
             {
                 timeout: 15000,
                 headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
+                    ...form.getHeaders()
                 },
                 auth: {
-                    username: portalUsername,
-                    password: portalPassword
+                    username: config.client_id,
+                    password: config.client_secret
                 }
             }
         );

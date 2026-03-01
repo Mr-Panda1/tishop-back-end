@@ -52,7 +52,7 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
         if (sellerOrderIds.length > 0) {
             const { data: orders, error: ordersError } = await supabase
                 .from('orders')
-                .select('id, order_number, customer_name, customer_email, customer_phone, total_amount, status, created_at, department_id, arrondissement_id, commune_id, neighborhood, landmark')
+                .select('id, order_number, customer_name, customer_email, customer_phone, total_amount, status, payment_method, manual_payment_reference, manual_payment_sender_phone, manual_payment_screenshot_name, manual_payment_submitted_at, created_at, department_id, arrondissement_id, commune_id, neighborhood, landmark')
                 .in('id', (sellerOrders || []).map(so => so.order_id));
 
             if (ordersError) {
