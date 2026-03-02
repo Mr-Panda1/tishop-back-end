@@ -45,7 +45,19 @@ const generalLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     handler: (req, res) => {
-        return res.status(429).json({ message: 'Trop de requêtes depuis cette adresse IP, veuillez réessayer après 60 minutes' }); 
+        return res.status(429).json({ message: 'Trop de requêtes depuis cette adresse IP, veuillez réessayer après 10 minutes' }); 
+    }
+})
+
+// rate limiter for admin login 
+const adminLoginLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    max: 5, // Ip max 5 requests per windowMs
+    message: 'Trop de requêtes depuis cette adresse IP, veuillez réessayer après 10 minutes',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        return res.status(429).json({ message: 'Trop de requêtes depuis cette adresse IP, veuillez réessayer après 10 minutes' }); 
     }
 })
 
@@ -53,5 +65,6 @@ module.exports = {
     authLimiter,
     sellerStoreLimiter,
     sellerKYCLimiter,
-    generalLimiter
+    generalLimiter,
+    adminLoginLimiter
 }

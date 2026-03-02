@@ -187,30 +187,41 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 }
 
                 // Insert file URLs and encryption metadata into kyc_files table
-                const { error: filesInsertError } = await supabase
+                const filesPayload = {
+                    kyc_document_id: kycDocumentId,
+                    id_front_url: uploadedUrls.id_front_url?.path || null,
+                    id_front_iv: uploadedUrls.id_front_url?.iv || null,
+                    id_front_auth_tag: uploadedUrls.id_front_url?.authTag || null,
+                    id_front_hash: uploadedUrls.id_front_url?.hash || null,
+                    id_back_url: uploadedUrls.id_back_url?.path || null,
+                    id_back_iv: uploadedUrls.id_back_url?.iv || null,
+                    id_back_auth_tag: uploadedUrls.id_back_url?.authTag || null,
+                    id_back_hash: uploadedUrls.id_back_url?.hash || null,
+                    selfie_url: uploadedUrls.selfie_url?.path || null,
+                    selfie_iv: uploadedUrls.selfie_url?.iv || null,
+                    selfie_auth_tag: uploadedUrls.selfie_url?.authTag || null,
+                    selfie_hash: uploadedUrls.selfie_url?.hash || null,
+                    are_encrypted: true,
+                    uploaded_at: new Date().toISOString()
+                };
+
+                console.log('Inserting kyc_files with payload:', filesPayload);
+
+                const { data: filesData, error: filesInsertError } = await supabase
                     .from('kyc_files')
-                    .insert({
-                        kyc_document_id: kycDocumentId,
-                        id_front_url: uploadedUrls.id_front_url.path,
-                        id_front_iv: uploadedUrls.id_front_url.iv,
-                        id_front_auth_tag: uploadedUrls.id_front_url.authTag,
-                        id_front_hash: uploadedUrls.id_front_url.hash,
-                        id_back_url: uploadedUrls.id_back_url?.path || null,
-                        id_back_iv: uploadedUrls.id_back_url?.iv || null,
-                        id_back_auth_tag: uploadedUrls.id_back_url?.authTag || null,
-                        id_back_hash: uploadedUrls.id_back_url?.hash || null,
-                        selfie_url: uploadedUrls.selfie_url.path,
-                        selfie_iv: uploadedUrls.selfie_url.iv,
-                        selfie_auth_tag: uploadedUrls.selfie_url.authTag,
-                        selfie_hash: uploadedUrls.selfie_url.hash,
-                        are_encrypted: true,
-                        uploaded_at: new Date().toISOString()
-                    });
+                    .insert(filesPayload)
+                    .select();
 
                 if (filesInsertError) {
                     console.error('Error inserting file URLs:', filesInsertError);
-                    return res.status(500).json({ message: 'Erreur lors de l\'enregistrement des informations de fichier' });
+                    console.error('Attempted payload:', filesPayload);
+                    return res.status(500).json({ 
+                        message: 'Error saving file information',
+                        error: filesInsertError.message 
+                    });
                 }
+
+                console.log('Successfully inserted kyc_files:', filesData);
 
                 return res.status(201).json({ 
                     message: 'Documents KYC soumis avec succès',

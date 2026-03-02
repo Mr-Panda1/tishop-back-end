@@ -13,6 +13,7 @@ const PAYMENT_PROOF_IMAGE_QUALITY = 80;
 
 const buildOrderNumber = () => {
     const now = new Date();
+    const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
     const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
     const randomPart = Math.floor(100000 + Math.random() * 900000);
     return `TS-${datePart}-${randomPart}`;
@@ -29,7 +30,7 @@ router.post('/upload-manual-payment-proof', generalLimiter, upload.single('payme
             ? crypto.randomUUID()
             : crypto.randomBytes(16).toString('hex');
 
-        const dayPrefix = new Date().toISOString().slice(0, 10);
+        const dayPrefix = localNow.toISOString().slice(0, 10);
         const filePath = `${dayPrefix}/${proofId}.enc`;
 
         const webpBuffer = await sharp(req.file.buffer)
@@ -58,7 +59,7 @@ router.post('/upload-manual-payment-proof', generalLimiter, upload.single('payme
                 hash: fileHash,
                 mimeType: 'image/webp',
                 originalName: req.file.originalname,
-                uploadedAt: new Date().toISOString()
+                uploadedAt: localNow.toISOString()
             }
         });
     } catch (error) {
