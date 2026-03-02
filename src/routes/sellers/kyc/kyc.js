@@ -187,34 +187,58 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 }
 
                 // Insert file URLs and encryption metadata into kyc_files table
-                const filesPayload = {
-                    kyc_document_id: kycDocumentId,
-                    id_front_url: uploadedUrls.id_front_url?.path || null,
-                    id_front_iv: uploadedUrls.id_front_url?.iv || null,
-                    id_front_auth_tag: uploadedUrls.id_front_url?.authTag || null,
-                    id_front_hash: uploadedUrls.id_front_url?.hash || null,
-                    id_back_url: uploadedUrls.id_back_url?.path || null,
-                    id_back_iv: uploadedUrls.id_back_url?.iv || null,
-                    id_back_auth_tag: uploadedUrls.id_back_url?.authTag || null,
-                    id_back_hash: uploadedUrls.id_back_url?.hash || null,
-                    selfie_url: uploadedUrls.selfie_url?.path || null,
-                    selfie_iv: uploadedUrls.selfie_url?.iv || null,
-                    selfie_auth_tag: uploadedUrls.selfie_url?.authTag || null,
-                    selfie_hash: uploadedUrls.selfie_url?.hash || null,
-                    are_encrypted: true,
-                    uploaded_at: new Date().toISOString()
-                };
+                // Create 3 separate records - one for each file type
+                const filesToInsert = [];
 
-                console.log('Inserting kyc_files with payload:', filesPayload);
+                if (uploadedUrls.id_front_url) {
+                    filesToInsert.push({
+                        kyc_document_id: kycDocumentId,
+                        file_type: 'id_front',
+                        id_front_url: uploadedUrls.id_front_url.path,
+                        id_front_iv: uploadedUrls.id_front_url.iv,
+                        id_front_auth_tag: uploadedUrls.id_front_url.authTag,
+                        id_front_hash: uploadedUrls.id_front_url.hash,
+                        are_encrypted: true,
+                        uploaded_at: new Date().toISOString()
+                    });
+                }
+
+                if (uploadedUrls.id_back_url) {
+                    filesToInsert.push({
+                        kyc_document_id: kycDocumentId,
+                        file_type: 'id_back',
+                        id_back_url: uploadedUrls.id_back_url.path,
+                        id_back_iv: uploadedUrls.id_back_url.iv,
+                        id_back_auth_tag: uploadedUrls.id_back_url.authTag,
+                        id_back_hash: uploadedUrls.id_back_url.hash,
+                        are_encrypted: true,
+                        uploaded_at: new Date().toISOString()
+                    });
+                }
+
+                if (uploadedUrls.selfie_url) {
+                    filesToInsert.push({
+                        kyc_document_id: kycDocumentId,
+                        file_type: 'selfie',
+                        selfie_url: uploadedUrls.selfie_url.path,
+                        selfie_iv: uploadedUrls.selfie_url.iv,
+                        selfie_auth_tag: uploadedUrls.selfie_url.authTag,
+                        selfie_hash: uploadedUrls.selfie_url.hash,
+                        are_encrypted: true,
+                        uploaded_at: new Date().toISOString()
+                    });
+                }
+
+                console.log('Inserting kyc_files records:', filesToInsert);
 
                 const { data: filesData, error: filesInsertError } = await supabase
                     .from('kyc_files')
-                    .insert(filesPayload)
+                    .insert(filesToInsert)
                     .select();
 
                 if (filesInsertError) {
                     console.error('Error inserting file URLs:', filesInsertError);
-                    console.error('Attempted payload:', filesPayload);
+                    console.error('Attempted payload:', filesToInsert);
                     return res.status(500).json({ 
                         message: 'Error saving file information',
                         error: filesInsertError.message 

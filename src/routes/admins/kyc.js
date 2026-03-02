@@ -27,9 +27,16 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
                 ),
                 kyc_files(
                     id,
+                    file_type,
                     id_front_url,
                     id_back_url,
                     selfie_url,
+                    id_front_iv,
+                    id_front_auth_tag,
+                    id_back_iv,
+                    id_back_auth_tag,
+                    selfie_iv,
+                    selfie_auth_tag,
                     uploaded_at
                 )
             `)
@@ -51,11 +58,34 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
         }
 
         // Restructure to use original property names
-        const restructured = kycDocuments.map(doc => ({
-            ...doc,
-            seller: doc.sellers,
-            files: doc.kyc_files
-        }));
+        const restructured = kycDocuments.map(doc => {
+            // Group kyc_files by file_type to reconstruct the expected format
+            const filesByType = {};
+            doc.kyc_files?.forEach(file => {
+                filesByType[file.file_type] = file;
+            });
+
+            // Create a single file object with all URLs (expected by frontend)
+            const singleFileObj = {
+                id: doc.id,
+                id_front_url: filesByType.id_front?.id_front_url || null,
+                id_back_url: filesByType.id_back?.id_back_url || null,
+                selfie_url: filesByType.selfie?.selfie_url || null,
+                id_front_iv: filesByType.id_front?.id_front_iv || null,
+                id_front_auth_tag: filesByType.id_front?.id_front_auth_tag || null,
+                id_back_iv: filesByType.id_back?.id_back_iv || null,
+                id_back_auth_tag: filesByType.id_back?.id_back_auth_tag || null,
+                selfie_iv: filesByType.selfie?.selfie_iv || null,
+                selfie_auth_tag: filesByType.selfie?.selfie_auth_tag || null,
+                uploaded_at: doc.kyc_files?.[0]?.uploaded_at || null
+            };
+
+            return {
+                ...doc,
+                seller: doc.sellers,
+                files: doc.kyc_files?.length > 0 ? [singleFileObj] : []
+            };
+        });
 
         return res.status(200)
             .set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
