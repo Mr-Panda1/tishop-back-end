@@ -5,6 +5,8 @@ const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthM
 const { decryptFile } = require('../../utils/encryption');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
+
 // GET all orders with filtering
 // GET /api/admin/orders?status=pending&search=order123
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
@@ -341,6 +343,34 @@ router.put('/admin/orders/:orderId/verify-payment',
                     success: false,
                     message: 'Failed to verify payment'
                 });
+            }
+
+            // Generate delivery codes for seller orders when payment is approved
+            if (approved) {
+                const { data: sellerOrders, error: sellerOrdersError } = await supabase
+                    .from('seller_orders')
+                    .select('id, delivery_code_full')
+                    .eq('order_id', orderId);
+
+                if (!sellerOrdersError && sellerOrders && sellerOrders.length > 0) {
+                    for (const sellerOrder of sellerOrders) {
+                        // Skip if already has delivery code
+                        if (sellerOrder.delivery_code_full) {
+                            continue;
+                        }
+
+                        const code = generateDeliveryCode();
+
+                        await supabase
+                            .from('seller_orders')
+                            .update({
+                                delivery_code_full: code,
+                                delivery_code_attempts: 0,
+                                updated_at: new Date().toISOString()
+                            })
+                            .eq('id', sellerOrder.id);
+                    }
+                }
             }
 
             return res.status(200).json({
