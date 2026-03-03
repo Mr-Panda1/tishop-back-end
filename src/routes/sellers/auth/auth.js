@@ -10,27 +10,36 @@ const crypto = require('crypto');
 router.post('/seller/login', authLimiter, async (req, res) => {
     try {
         // Safely handle cases where req.body is undefined
-        const { email, password } = req.body;
+        const { email, password } = req.body || {};
+        const normalizedEmail = String(email || '').trim().toLowerCase();
 
         // Verify if inpuits are provided
-        if (!email || !password) {
+        if (!normalizedEmail || !password) {
             return res.status(400).json({ message: 'L\'adresse e-mail et le mot de passe sont requis.' });
         }
 
-        // Check if email exist
-        const { data: seller, error: sellerError } = await supabase
+        // Check if email exists for a seller account (admin client avoids RLS false negatives)
+        const { data: seller, error: sellerError } = await supabaseAdmin
         .from('users')
-        .select('email')
-        .eq('email', email)
-        .single();
+        .select('email, role, is_active')
+        .ilike('email', normalizedEmail)
+        .maybeSingle();
 
         if (sellerError || !seller) {
             return res.status(401).json({ message: 'Invalid email or password.' });
         }
 
+        if (seller.role && seller.role !== 'seller') {
+            return res.status(401).json({ message: 'Invalid email or password.' });
+        }
+
+        if (seller.is_active === false) {
+            return res.status(403).json({ message: 'Votre compte est inactif.' });
+        }
+
         // Sign in the seller
         const { data, error } = await supabase.auth.signInWithPassword({
-            email,
+            email: normalizedEmail,
             password
         });
 
