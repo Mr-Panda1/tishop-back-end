@@ -3,6 +3,10 @@ const { supabase } = require('../../db/supabase');
 const router = express.Router();
 const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthMiddleware');
 const { decryptFile } = require('../../utils/encryption');
+const {
+    sendCustomerOrderPaidEmail,
+    sendSellerOrderPaidEmail
+} = require('../../email/notifications/lifecycleNotifications');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
@@ -291,7 +295,7 @@ router.put('/admin/orders/:orderId/verify-payment',
 
             const { data: order, error: orderError } = await supabase
                 .from('orders')
-                .select('id, payment_method, status, manual_payment_verified_at, manual_payment_rejection_reason')
+                .select('id, order_number, customer_name, customer_email, total_amount, payment_method, status, manual_payment_verified_at, manual_payment_rejection_reason')
                 .eq('id', orderId)
                 .single();
 
@@ -349,7 +353,7 @@ router.put('/admin/orders/:orderId/verify-payment',
             if (approved) {
                 const { data: sellerOrders, error: sellerOrdersError } = await supabase
                     .from('seller_orders')
-                    .select('id, delivery_code_full')
+                    .select('id, seller_id, total_amount, delivery_code_full')
                     .eq('order_id', orderId);
 
                 if (!sellerOrdersError && sellerOrders && sellerOrders.length > 0) {
@@ -369,6 +373,53 @@ router.put('/admin/orders/:orderId/verify-payment',
                                 updated_at: new Date().toISOString()
                             })
                             .eq('id', sellerOrder.id);
+                    }
+
+                    const sellerIds = [...new Set(sellerOrders.map(item => item.seller_id).filter(Boolean))];
+                    const { data: sellers, error: sellersError } = await supabase
+                        .from('sellers')
+                        .select('id, first_name, last_name, email')
+                        .in('id', sellerIds);
+
+                    const sellersById = sellersError
+                        ? new Map()
+                        : new Map((sellers || []).map(seller => [seller.id, seller]));
+
+                    if (sellersError) {
+                        console.error('Error fetching sellers for paid email:', sellersError);
+                    }
+
+                    const sellerPaidEmailTasks = sellerOrders.map(async (sellerOrder) => {
+                        const seller = sellersById.get(sellerOrder.seller_id);
+                        if (!seller?.email) {
+                            return;
+                        }
+
+                        try {
+                            await sendSellerOrderPaidEmail({
+                                toEmail: seller.email,
+                                sellerName: `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur',
+                                orderNumber: order.order_number,
+                                sellerTotal: sellerOrder.total_amount
+                            });
+                        } catch (emailError) {
+                            console.error(`Error sending paid email to seller ${seller.email}:`, emailError.message);
+                        }
+                    });
+
+                    await Promise.all(sellerPaidEmailTasks);
+                }
+
+                if (order.customer_email) {
+                    try {
+                        await sendCustomerOrderPaidEmail({
+                            toEmail: order.customer_email,
+                            customerName: order.customer_name,
+                            orderNumber: order.order_number,
+                            totalAmount: order.total_amount
+                        });
+                    } catch (emailError) {
+                        console.error('Error sending paid email to customer:', emailError.message);
                     }
                 }
             }

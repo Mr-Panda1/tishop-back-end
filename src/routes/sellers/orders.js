@@ -3,8 +3,49 @@ const router = express.Router();
 const authenticateUser = require('../../middlewares/authMiddleware');
 const { supabase } = require('../../db/supabase');
 const { sellerStoreLimiter } = require('../../middlewares/limit');
+const { sendCustomerOrderStatusEmail } = require('../../email/notifications/lifecycleNotifications');
 
 const verifyCodeMatch = (inputCode, storedCode) => inputCode === storedCode;
+
+const notifyCustomerOrderStatusUpdate = async ({ orderId, status, sellerId }) => {
+    const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('order_number, customer_name, customer_email')
+        .eq('id', orderId)
+        .maybeSingle();
+
+    if (orderError || !order?.customer_email) {
+        if (orderError) {
+            console.error('Error fetching order for status notification:', orderError);
+        }
+        return;
+    }
+
+    let sellerName = 'Vendeur';
+    if (sellerId) {
+        const { data: seller, error: sellerError } = await supabase
+            .from('sellers')
+            .select('first_name, last_name')
+            .eq('id', sellerId)
+            .maybeSingle();
+
+        if (!sellerError && seller) {
+            sellerName = `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur';
+        }
+    }
+
+    try {
+        await sendCustomerOrderStatusEmail({
+            toEmail: order.customer_email,
+            customerName: order.customer_name,
+            orderNumber: order.order_number,
+            status,
+            sellerName
+        });
+    } catch (error) {
+        console.error('Error sending customer status email:', error.message);
+    }
+};
 
 // GET seller's orders
 router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
@@ -449,6 +490,12 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
             console.error('Error logging status update:', logError);
         }
 
+        await notifyCustomerOrderStatusUpdate({
+            orderId: sellerOrder.order_id,
+            status,
+            sellerId: seller.id
+        });
+
         return res.status(200).json({
             message: 'Statut de la commande du vendeur mis à jour',
             data: {
@@ -565,6 +612,12 @@ router.post('/:sellerOrderId/confirm-delivery', authenticateUser, sellerStoreLim
                 attempted_code: code,
                 success: true
             }]);
+
+        await notifyCustomerOrderStatusUpdate({
+            orderId: sellerOrder.order_id,
+            status: 'delivered',
+            sellerId: seller.id
+        });
 
         return res.status(200).json({
             message: 'Livraison confirmée avec succès',

@@ -6,6 +6,12 @@ const upload = require('../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const crypto = require('crypto');
 const { encryptFile, hashFile } = require('../../utils/encryption');
+const {
+    sendCustomerOrderPlacedEmail,
+    sendSellerNewOrderEmail,
+    sendAdminNewOrderEmail
+} = require('../../email/notifications/lifecycleNotifications');
+const { getAdminNotificationEmails } = require('../../email/notifications/adminRecipients');
 
 const MANUAL_PAYMENT_BUCKET = 'customer_payment_proof';
 const PAYMENT_PROOF_IMAGE_WIDTH = 1200;
@@ -364,6 +370,75 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         if (orderItemsError) {
             console.error('Error creating order items:', orderItemsError);
             return res.status(500).json({ message: 'Error creating order items' });
+        }
+
+        const sellerIds = [...new Set((sellerOrders || []).map(item => item.seller_id).filter(Boolean))];
+        let sellersById = new Map();
+
+        if (sellerIds.length > 0) {
+            const { data: sellers, error: sellersError } = await supabase
+                .from('sellers')
+                .select('id, first_name, last_name, email')
+                .in('id', sellerIds);
+
+            if (sellersError) {
+                console.error('Error fetching sellers for notification emails:', sellersError);
+            } else {
+                sellersById = new Map((sellers || []).map(seller => [seller.id, seller]));
+            }
+        }
+
+        try {
+            await sendCustomerOrderPlacedEmail({
+                toEmail: customerEmail,
+                customerName,
+                orderNumber,
+                totalAmount,
+                paymentMethod
+            });
+        } catch (error) {
+            console.error('Error sending customer order placed email:', error.message);
+        }
+
+        const sellerEmailPromises = (sellerOrders || []).map(async (sellerOrder) => {
+            const seller = sellersById.get(sellerOrder.seller_id);
+            if (!seller?.email) {
+                return;
+            }
+
+            try {
+                await sendSellerNewOrderEmail({
+                    toEmail: seller.email,
+                    sellerName: `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur',
+                    orderNumber,
+                    customerName,
+                    sellerTotal: sellerOrder.total_amount,
+                    paymentMethod
+                });
+            } catch (error) {
+                console.error(`Error sending seller new order email to ${seller.email}:`, error.message);
+            }
+        });
+
+        await Promise.all(sellerEmailPromises);
+
+        try {
+            const adminEmails = await getAdminNotificationEmails(supabase);
+            await Promise.all(adminEmails.map(async (adminEmail) => {
+                try {
+                    await sendAdminNewOrderEmail({
+                        toEmail: adminEmail,
+                        orderNumber,
+                        customerName,
+                        totalAmount,
+                        paymentMethod
+                    });
+                } catch (error) {
+                    console.error(`Error sending admin new order email to ${adminEmail}:`, error.message);
+                }
+            }));
+        } catch (error) {
+            console.error('Error resolving admin recipients for new order email:', error.message);
         }
 
         return res.status(201).json({

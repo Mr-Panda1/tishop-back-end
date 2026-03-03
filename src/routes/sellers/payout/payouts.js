@@ -3,6 +3,11 @@ const router = express.Router();
 const authenticateUser = require('../../../middlewares/authMiddleware');
 const { supabase } = require('../../../db/supabase');
 const { sellerStoreLimiter } = require('../../../middlewares/limit');
+const {
+	sendSellerPayoutRequestedEmail,
+	sendAdminPayoutRequestedEmail
+} = require('../../../email/notifications/lifecycleNotifications');
+const { getAdminNotificationEmails } = require('../../../email/notifications/adminRecipients');
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -14,7 +19,7 @@ const sumAmount = (rows, key) => (rows || []).reduce((total, row) => {
 const fetchSeller = async (userId) => {
 	const { data: seller, error } = await supabase
 		.from('sellers')
-		.select('id')
+		.select('id, first_name, last_name, email')
 		.eq('user_id', userId)
 		.maybeSingle();
 
@@ -226,6 +231,39 @@ router.post('/payouts/withdraw', authenticateUser, sellerStoreLimiter, async (re
 		}
 
 		const refreshed = await fetchBalances(seller.id);
+
+		if (seller.email) {
+			try {
+				await sendSellerPayoutRequestedEmail({
+					toEmail: seller.email,
+					sellerName: `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur',
+					amount,
+					payoutMethod: kyc.payout_method
+				});
+			} catch (emailError) {
+				console.error('Error sending payout request email to seller:', emailError.message);
+			}
+		}
+
+		try {
+			const adminRecipients = await getAdminNotificationEmails(supabase);
+			await Promise.all(adminRecipients.map(async (adminEmail) => {
+				try {
+					await sendAdminPayoutRequestedEmail({
+						toEmail: adminEmail,
+						sellerName: `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur',
+						sellerEmail: seller.email,
+						amount,
+						payoutMethod: kyc.payout_method,
+						payoutId: payout.id
+					});
+				} catch (emailError) {
+					console.error(`Error sending payout request email to admin ${adminEmail}:`, emailError.message);
+				}
+			}));
+		} catch (recipientError) {
+			console.error('Error resolving admin recipients for payout email:', recipientError.message);
+		}
 
 		return res.status(201).json({
 			message: 'Payout request created',
