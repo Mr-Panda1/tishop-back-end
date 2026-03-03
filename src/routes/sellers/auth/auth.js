@@ -4,6 +4,7 @@ const router = express.Router();
 const { authLimiter } = require('../../../middlewares/limit');
 const { sendWelcomeEmail } = require('../../../email/seller/welcomeEmail');
 const crypto = require('crypto');
+const { validatePassword } = require('../../../utils/passwordValidator');
 
 // Seller login route 
 // POST /api/seller/login
@@ -130,6 +131,15 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
                     email: !email,
                     password: !password
                 }
+            });
+        }
+
+        // Verify if password meet supabase criteria
+        const passwordValidation = validatePassword(password);
+        if (!passwordValidation.isValid) {
+            console.log('VALIDATION FAILED: Password does not meet criteria');
+            return res.status(400).json({ 
+                message: `${passwordValidation.errors}`,
             });
         }
 
