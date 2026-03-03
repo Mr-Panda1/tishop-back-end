@@ -9,12 +9,17 @@ app.set('trust proxy', 1);
 
 // Log requests
 app.use((req, res, next) => {
-    console.log('Incoming request:', {
+    console.log('═'.repeat(80));
+    console.log('🔵 Incoming request:', {
         method: req.method,
         url: req.url,
-        headers: req.headers,
+        path: req.path,
+        contentType: req.get('Content-Type'),
         origin: req.get('origin')
     });
+    if (req.method === 'POST' && req.body) {
+        console.log('📝 Request body keys:', Object.keys(req.body));
+    }
     next();
 });
 
@@ -55,9 +60,10 @@ const allowedOrigins = [
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
+            console.log('✅ CORS allowed for origin:', origin || '[no origin - same-site]');
             callback(null, true);
         } else {
-            console.warn(`CORS blocked origin: ${origin}`);
+            console.warn('❌ CORS blocked origin:', origin);
             callback(new Error('CORS not allowed'));
         }
     },

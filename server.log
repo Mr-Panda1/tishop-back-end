@@ -1,0 +1,25 @@
+
+> backend@1.0.0 start
+> node src/server.js
+
+[dotenv@17.2.3] injecting env (20) from .env -- tip: ΓÜÖ∩╕Å  enable debug logging with { debug: true }
+Environment variables validated successfully
+Registering routes...
+[Moncash Config] Loaded credentials:
+[Moncash Config] Client ID: 2fd21ecb...
+[Moncash Config] Client Secret: cC2Ygozr...
+[Moncash Config] Portal Username: NOT SET (required for MerchantApi)
+[Moncash Config] Mode: sandbox
+[Moncash Config] Return URL: https://pay.tishop.co/api/moncash/return
+[Moncash Config] Webhook URL: https://pay.tishop.co/api/moncash/webhook
+[Moncash Config] Moncash configured successfully (Axios-based client)
+[Moncash Config] ΓÜá∩╕Å  Make sure these match your MonCash business portal settings:
+[Moncash Config]   - Mode (sandbox/live) must match your credentials
+[Moncash Config]   - Return URL must match exactly: https://pay.tishop.co/api/moncash/return
+Starting TiShop backend...
+Testing supabase connection...
+Supabase connection verified successfully
+Server is running on port 8000
+Ready to accept connections from all interfaces!
+Allowed origins: http://localhost:3000, http://localhost:3001, http://localhost:8000, http://192.168.1.66:3000, http://192.168.1.66:8000, http://192.168.1.66:3001, https://tishop.co, https://www.tishop.co, https://seller.tishop.co, https://pay.tishop.co
+Γ£ô Brevo SMTP connection verified successfully

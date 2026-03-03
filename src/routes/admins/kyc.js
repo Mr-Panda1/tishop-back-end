@@ -6,10 +6,14 @@ const { decryptFile } = require('../../utils/encryption');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Get all by filter KYC requests
-// GET /api/admin/kyc?status=pending
+// GET /api/admin/kyc?status=pending&limit=20&offset=0
 router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
     try {
-        const { status } = req.query;
+        const { status, limit = 20, offset = 0 } = req.query;
+        const parsedLimit = Number.parseInt(limit, 10);
+        const parsedOffset = Number.parseInt(offset, 10);
+        const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 20;
+        const safeOffset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
 
         // Build query for kyc_documents with seller info and files
         let query = supabase
@@ -24,9 +28,37 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
                     phone,
                     is_verified,
                     verification_status
-                ),
-                kyc_files(
+                )
+            `, { count: 'exact' })
+            .order('submitted_at', { ascending: false });
+
+        // Filter by status if provided
+        if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+            query = query.eq('status', status);
+        }
+
+        // Pagination
+        query = query.range(safeOffset, safeOffset + safeLimit - 1);
+
+        const { data: kycDocuments, error, count } = await query;
+
+        if (error) {
+            console.error('Error fetching KYC documents:', error);
+            return res.status(500).json({ 
+                message: 'Error retrieving KYC documents',
+                error: error.message 
+            });
+        }
+
+        const kycDocumentIds = (kycDocuments || []).map((doc) => doc.id);
+        let kycFilesByDocumentId = {};
+
+        if (kycDocumentIds.length > 0) {
+            const { data: kycFiles, error: kycFilesError } = await supabase
+                .from('kyc_files')
+                .select(`
                     id,
+                    kyc_document_id,
                     file_type,
                     id_front_url,
                     id_back_url,
@@ -38,39 +70,72 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
                     selfie_iv,
                     selfie_auth_tag,
                     uploaded_at
-                )
-            `)
-            .order('submitted_at', { ascending: false });
+                `)
+                .in('kyc_document_id', kycDocumentIds);
 
-        // Filter by status if provided
-        if (status && ['pending', 'approved', 'rejected'].includes(status)) {
-            query = query.eq('status', status);
+            if (kycFilesError) {
+                console.error('Error fetching KYC files:', kycFilesError);
+                return res.status(500).json({
+                    message: 'Error retrieving KYC file metadata',
+                    error: kycFilesError.message
+                });
+            }
+
+            kycFilesByDocumentId = (kycFiles || []).reduce((acc, file) => {
+                if (!acc[file.kyc_document_id]) {
+                    acc[file.kyc_document_id] = [];
+                }
+                acc[file.kyc_document_id].push(file);
+                return acc;
+            }, {});
         }
 
-        const { data: kycDocuments, error } = await query;
+        const createSignedUrl = async (filePath) => {
+            if (!filePath) return null;
 
-        if (error) {
-            console.error('Error fetching KYC documents:', error);
-            return res.status(500).json({ 
-                message: 'Error retrieving KYC documents',
-                error: error.message 
-            });
-        }
+            const { data, error } = await supabase.storage
+                .from('kyc_documents')
+                .createSignedUrl(filePath, 60 * 30);
+
+            if (error) {
+                console.error('Error creating signed URL:', { filePath, error });
+                return null;
+            }
+
+            return data?.signedUrl || null;
+        };
 
         // Restructure to use original property names
-        const restructured = kycDocuments.map(doc => {
+        const restructured = await Promise.all(kycDocuments.map(async (doc) => {
             // Group kyc_files by file_type to reconstruct the expected format
             const filesByType = {};
-            doc.kyc_files?.forEach(file => {
+            const documentFiles = kycFilesByDocumentId[doc.id] || [];
+            documentFiles.forEach(file => {
                 filesByType[file.file_type] = file;
             });
+
+            const idFrontPath = filesByType.id_front?.id_front_url || null;
+            const idBackPath = filesByType.id_back?.id_back_url || null;
+            const selfiePath = filesByType.selfie?.selfie_url || null;
+
+            const [idFrontSignedUrl, idBackSignedUrl, selfieSignedUrl] = await Promise.all([
+                createSignedUrl(idFrontPath),
+                createSignedUrl(idBackPath),
+                createSignedUrl(selfiePath)
+            ]);
 
             // Create a single file object with all URLs (expected by frontend)
             const singleFileObj = {
                 id: doc.id,
-                id_front_url: filesByType.id_front?.id_front_url || null,
-                id_back_url: filesByType.id_back?.id_back_url || null,
-                selfie_url: filesByType.selfie?.selfie_url || null,
+                id_front_url: idFrontSignedUrl,
+                id_back_url: idBackSignedUrl,
+                selfie_url: selfieSignedUrl,
+                id_front_path: idFrontPath,
+                id_back_path: idBackPath,
+                selfie_path: selfiePath,
+                id_front_signed_url: idFrontSignedUrl,
+                id_back_signed_url: idBackSignedUrl,
+                selfie_signed_url: selfieSignedUrl,
                 id_front_iv: filesByType.id_front?.id_front_iv || null,
                 id_front_auth_tag: filesByType.id_front?.id_front_auth_tag || null,
                 id_back_iv: filesByType.id_back?.id_back_iv || null,
@@ -83,15 +148,21 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
             return {
                 ...doc,
                 seller: doc.sellers,
-                files: doc.kyc_files?.length > 0 ? [singleFileObj] : []
+                files: documentFiles.length > 0 ? [singleFileObj] : []
             };
-        });
+        }));
 
         return res.status(200)
             .set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
             .json({ 
                 success: true,
                 count: restructured.length,
+                total: count,
+                pagination: {
+                    limit: safeLimit,
+                    offset: safeOffset,
+                    total: count
+                },
                 data: restructured 
             });
 
@@ -114,14 +185,20 @@ router.get('/admin/kyc/files/:kycDocId/:fileType',
                 return res.status(400).json({ message: 'Invalid file type' });
             }
 
-            // Get file metadata from kyc_files
+            console.log('Querying kyc_files:', { kycDocId, fileType });
+
+            // Get file metadata from kyc_files by file_type
             const { data: fileData, error: fileError } = await supabase
                 .from('kyc_files')
                 .select('*')
                 .eq('kyc_document_id', kycDocId)
+                .eq('file_type', fileType)
                 .single();
 
+            console.log('Query result:', { fileData, fileError });
+
             if (fileError || !fileData) {
+                console.error('File fetch error:', fileError);
                 return res.status(404).json({ message: 'File record not found' });
             }
 

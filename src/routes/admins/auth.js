@@ -7,12 +7,22 @@ const { adminLoginLimiter } = require('../../middlewares/limit');
 // POST /api/admin/login
 router.post('/admin/login', adminLoginLimiter, async (req, res) => {
     try {
+        console.log('📍 Admin login request received');
+        console.log('📍 Request body:', { 
+            email: req.body?.email, 
+            password: req.body?.password ? '***' : undefined, 
+            admin_code: req.body?.admin_code ? '***' : undefined 
+        });
+
         const { email, password, admin_code } = req.body;
 
         // Verify if inputs are provided
         if (!email || !password || !admin_code) {
+            console.log('❌ Missing required fields:', { email: !!email, password: !!password, admin_code: !!admin_code });
             return res.status(400).json({ message: 'Email, password and admin code are required.' });
         }
+
+        console.log('📍 Looking up admin with email:', email);
 
         // Check if admin exist in admins table FIRST (not users table)
         const { data: adminData, error: adminDataError } = await supabase
@@ -22,23 +32,30 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
         .maybeSingle();
 
         if (adminDataError) {
-            console.error('Admin lookup error:', adminDataError);
+            console.error('❌ Admin lookup error:', adminDataError);
             return res.status(500).json({ message: 'Server error during login.' });
         }
 
         if (!adminData) {
+            console.log('❌ Admin not found for email:', email);
             return res.status(401).json({ message: 'Invalid email, code or password' });
         }
 
+        console.log('📍 Admin found:', { email: adminData.email, is_active: adminData.is_active });
+
         // Check if admin is active
         if (!adminData.is_active) {
+            console.log('❌ Admin account is inactive');
             return res.status(403).json({ message: 'Admin account is inactive.' });
         }
 
         // Check if admin code is correct (strict comparison)
         if (adminData.admin_code !== admin_code || !admin_code || !adminData.admin_code) {
+            console.log('❌ Admin code validation failed');
             return res.status(401).json({ message: 'Invalid email, code or password' });
         }
+
+        console.log('📍 Admin code verified, checking password...');
 
         // Check if password is correct
         const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
@@ -47,8 +64,11 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
         });
 
         if (authError || !authData) {
+            console.error('❌ Password check failed:', authError?.message);
             return res.status(401).json({ message: 'Invalid email, code or password' });
         }
+
+        console.log('📍 Password verified, updating last login...');
 
         // Update last login time 
         const { error: updateError } = await supabase
@@ -57,8 +77,11 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
         .eq('email', email);
 
         if (updateError) {
+            console.error('❌ Update last login error:', updateError);
             return res.status(401).json({ message: 'Login successful but failed to update last login time.' });
         }
+
+        console.log('📍 Setting cookies...');
 
         // Generate a session token
         res.cookie('access_token', authData.session.access_token, {
@@ -88,9 +111,11 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
             refresh_token: authData.session.refresh_token
         }
 
+        console.log('✅ Login successful, sending response');
         return res.status(200).json(response);
     } catch (error) {
-        console.error("Login request error:", error.message);
+        console.error("❌ Login request error:", error.message);
+        console.error("❌ Error stack:", error.stack);
         return res.status(500).json({ message: 'An error occurred during login.' });
     }
 })

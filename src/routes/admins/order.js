@@ -9,7 +9,11 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 // GET /api/admin/orders?status=pending&search=order123
 router.get('/admin/orders', authenticateAdmin, async (req, res) => {
     try {
-        const { status, search, limit = 50, offset = 0 } = req.query;
+        const { status, search, limit = 20, offset = 0 } = req.query;
+        const parsedLimit = Number.parseInt(limit, 10);
+        const parsedOffset = Number.parseInt(offset, 10);
+        const safeLimit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 20) : 20;
+        const safeOffset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
 
         let query = supabase
             .from('orders')
@@ -37,7 +41,7 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
                     total_amount,
                     shops(id, name, seller_id, sellers(id, first_name, last_name))
                 )
-            `)
+            `, { count: 'exact' })
             .order('created_at', { ascending: false });
 
         // Filter by status if provided
@@ -52,7 +56,7 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
         }
 
         // Pagination
-        query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+        query = query.range(safeOffset, safeOffset + safeLimit - 1);
 
         const { data: orders, error, count } = await query;
 
@@ -71,8 +75,8 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
                 count: orders.length,
                 total: count,
                 pagination: {
-                    limit: parseInt(limit),
-                    offset: parseInt(offset),
+                    limit: safeLimit,
+                    offset: safeOffset,
                     total: count
                 },
                 data: orders
@@ -89,22 +93,44 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
 router.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
     try {
         const { orderId } = req.params;
+        console.log('📍 Order detail request for ID:', orderId);
 
         if (!UUID_REGEX.test(orderId)) {
+            console.error('❌ Invalid order ID format:', orderId);
             return res.status(400).json({
                 success: false,
                 message: 'Invalid order ID format'
             });
         }
 
+        console.log('📍 Fetching order from database...');
         const { data: order, error: orderError } = await supabase
             .from('orders')
             .select(`
-                *,
+                id,
+                order_number,
+                customer_name,
+                customer_email,
+                customer_phone,
+                department_id,
+                arrondissement_id,
+                commune_id,
+                neighborhood,
+                landmark,
+                total_amount,
+                payment_method,
+                manual_payment_reference,
+                manual_payment_sender_phone,
+                manual_payment_submitted_at,
+                manual_payment_proof_path,
+                status,
+                created_at,
+                updated_at,
                 seller_orders(
                     id,
                     seller_id,
                     shop_id,
+                    delivery_method,
                     items_subtotal,
                     delivery_fee,
                     total_amount,
@@ -120,19 +146,37 @@ router.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
                         quantity,
                         unit_price,
                         total_price,
-                        products(id, name, image_url),
-                        product_variants(id, sku, attributes)
+                        products(id, name, product_images(id, image_url, is_main)),
+                        product_variants(id, sku, size, color, attributes, product_variant_images(id, image_url, is_main))
                     )
                 )
             `)
             .eq('id', orderId)
             .single();
 
-        if (orderError || !order) {
+        if (orderError) {
+            console.error('❌ Database error:', orderError.message);
+            return res.status(404).json({
+                success: false,
+                message: 'Order not found',
+                error: orderError.message
+            });
+        }
+
+        if (!order) {
+            console.error('❌ No order found with ID:', orderId);
             return res.status(404).json({
                 success: false,
                 message: 'Order not found'
             });
+        }
+
+        console.log('✅ Order fetched successfully');
+        console.log('📍 Order keys:', Object.keys(order));
+        console.log('📍 Seller orders count:', order.seller_orders?.length ?? 0);
+        if (order.seller_orders && order.seller_orders.length > 0) {
+            console.log('📍 First seller order items count:', order.seller_orders[0].order_items?.length ?? 0);
+            console.log('📍 Seller order structure:', JSON.stringify(order.seller_orders[0], null, 2));
         }
 
         return res.status(200)
@@ -143,8 +187,9 @@ router.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
             });
 
     } catch (error) {
-        console.error('Error fetching order details:', error.message);
-        return res.status(500).json({ message: 'An error occurred while fetching order details' });
+        console.error('❌ Error fetching order details:', error.message);
+        console.error('❌ Stack trace:', error.stack);
+        return res.status(500).json({ message: 'An error occurred while fetching order details', error: error.message });
     }
 });
 
@@ -274,7 +319,7 @@ router.put('/admin/orders/:orderId/verify-payment',
                     manual_payment_verified_at: new Date().toISOString(),
                     manual_payment_verified_by: req.admin.id,
                     manual_payment_rejection_reason: null,
-                    status: 'confirmed'
+                    status: 'paid'
                 }
                 : {
                     manual_payment_rejection_reason: rejection_reason.trim(),
@@ -296,17 +341,6 @@ router.put('/admin/orders/:orderId/verify-payment',
                     success: false,
                     message: 'Failed to verify payment'
                 });
-            }
-
-            // If approved, also update all seller_orders to confirmed
-            if (approved) {
-                await supabase
-                    .from('seller_orders')
-                    .update({
-                        status: 'confirmed',
-                        confirmed_at: new Date().toISOString()
-                    })
-                    .eq('order_id', orderId);
             }
 
             return res.status(200).json({

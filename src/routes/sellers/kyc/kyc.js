@@ -299,7 +299,7 @@ router.get('/status', authenticateUser, async (req, res) => {
         if (kycData.status === 'rejected') {
             return res.status(200).json({
                 status: kycData.status,
-                message: 'Votre soumission KYC a été rejetée. Veuillez examiner la raison du rejet et la soumettre à nouveau.',
+                message: `Votre soumission KYC a été rejetée. Veuillez examiner la raison du rejet et la soumettre à nouveau. Raison du rejet : ${kycData.rejection_reason}`,
                 submitted_at: kycData.submitted_at,
                 reviewed_at: kycData.reviewed_at,
                 rejection_reason: kycData.rejection_reason || 'No reason provided'
