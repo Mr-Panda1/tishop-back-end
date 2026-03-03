@@ -74,12 +74,96 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
                 return res.status(500).json({ message: 'Error fetching order items' });
             }
 
+            // Fetch product and variant data with images
+            const productIds = [...new Set((items || []).map(item => item.product_id))];
+            const variantIds = [...new Set((items || []).filter(item => item.product_variant_id).map(item => item.product_variant_id))];
+
+            let products = [];
+            let variants = [];
+            let productImageMap = new Map();
+            let variantImageMap = new Map();
+
+            if (productIds.length > 0) {
+                const { data: productsData, error: productsError } = await supabase
+                    .from('products')
+                    .select('id, name')
+                    .in('id', productIds);
+
+                if (productsError) {
+                    console.error('Error fetching products:', productsError);
+                } else {
+                    products = productsData || [];
+                }
+
+                // Fetch product images
+                const { data: productImages, error: productImagesError } = await supabase
+                    .from('product_images')
+                    .select('product_id, image_url, position, is_main')
+                    .in('product_id', productIds);
+
+                if (!productImagesError && productImages) {
+                    productImages.forEach(image => {
+                        const existing = productImageMap.get(image.product_id);
+                        if (!existing || image.is_main || image.position < existing.position) {
+                            productImageMap.set(image.product_id, image.image_url);
+                        }
+                    });
+                }
+            }
+
+            if (variantIds.length > 0) {
+                const { data: variantsData, error: variantsError } = await supabase
+                    .from('product_variants')
+                    .select('id, product_id, size, color, sku')
+                    .in('id', variantIds);
+
+                if (variantsError) {
+                    console.error('Error fetching variants:', variantsError);
+                } else {
+                    variants = variantsData || [];
+                }
+
+                // Fetch variant images
+                const { data: variantImages, error: variantImagesError } = await supabase
+                    .from('product_variant_images')
+                    .select('product_variant_id, image_url, position, is_main')
+                    .in('product_variant_id', variantIds);
+
+                if (!variantImagesError && variantImages) {
+                    variantImages.forEach(image => {
+                        const existing = variantImageMap.get(image.product_variant_id);
+                        if (!existing || image.is_main || image.position < existing.position) {
+                            variantImageMap.set(image.product_variant_id, image.image_url);
+                        }
+                    });
+                }
+            }
+
+            const productMap = new Map(products.map(p => [p.id, p]));
+            const variantMap = new Map(variants.map(v => [v.id, v]));
+
             const itemsBySellerOrderId = new Map();
             (items || []).forEach(item => {
                 if (!itemsBySellerOrderId.has(item.seller_order_id)) {
                     itemsBySellerOrderId.set(item.seller_order_id, []);
                 }
-                itemsBySellerOrderId.get(item.seller_order_id).push(item);
+
+                const product = productMap.get(item.product_id);
+                const variant = item.product_variant_id ? variantMap.get(item.product_variant_id) : null;
+                const variantImage = item.product_variant_id ? variantImageMap.get(item.product_variant_id) : null;
+                const productImage = variantImage || productImageMap.get(item.product_id) || '';
+
+                const enrichedItem = {
+                    ...item,
+                    product_name: product?.name || 'Produit',
+                    product_image: productImage,
+                    variant_label: variant ? [
+                        variant.size && `Taille: ${variant.size}`,
+                        variant.color && `Couleur: ${variant.color}`
+                    ].filter(Boolean).join(' • ') : ''
+                };
+
+                itemsBySellerOrderId.get(item.seller_order_id).push(enrichedItem);
             });
 
             const result = (sellerOrders || []).map(so => ({
@@ -172,12 +256,97 @@ router.get('/:sellerOrderId', authenticateUser, async (req, res) => {
             return res.status(500).json({ message: 'Error fetching order items' });
         }
 
+        // Fetch product and variant data with images
+        const productIds = [...new Set((items || []).map(item => item.product_id))];
+        const variantIds = [...new Set((items || []).filter(item => item.product_variant_id).map(item => item.product_variant_id))];
+
+        let products = [];
+        let variants = [];
+        let productImageMap = new Map();
+        let variantImageMap = new Map();
+
+        if (productIds.length > 0) {
+            const { data: productsData, error: productsError } = await supabase
+                .from('products')
+                .select('id, name')
+                .in('id', productIds);
+
+            if (productsError) {
+                console.error('Error fetching products:', productsError);
+            } else {
+                products = productsData || [];
+            }
+
+            // Fetch product images
+            const { data: productImages, error: productImagesError } = await supabase
+                .from('product_images')
+                .select('product_id, image_url, position, is_main')
+                .in('product_id', productIds);
+
+            if (!productImagesError && productImages) {
+                productImages.forEach(image => {
+                    const existing = productImageMap.get(image.product_id);
+                    if (!existing || image.is_main || image.position < existing.position) {
+                        productImageMap.set(image.product_id, image.image_url);
+                    }
+                });
+            }
+        }
+
+        if (variantIds.length > 0) {
+            const { data: variantsData, error: variantsError } = await supabase
+                .from('product_variants')
+                .select('id, product_id, size, color, sku')
+                .in('id', variantIds);
+
+            if (variantsError) {
+                console.error('Error fetching variants:', variantsError);
+            } else {
+                variants = variantsData || [];
+            }
+
+            // Fetch variant images
+            const { data: variantImages, error: variantImagesError } = await supabase
+                .from('product_variant_images')
+                .select('product_variant_id, image_url, position, is_main')
+                .in('product_variant_id', variantIds);
+
+            if (!variantImagesError && variantImages) {
+                variantImages.forEach(image => {
+                    const existing = variantImageMap.get(image.product_variant_id);
+                    if (!existing || image.is_main || image.position < existing.position) {
+                        variantImageMap.set(image.product_variant_id, image.image_url);
+                    }
+                });
+            }
+        }
+
+        const productMap = new Map(products.map(p => [p.id, p]));
+        const variantMap = new Map(variants.map(v => [v.id, v]));
+
+        const enrichedItems = (items || []).map(item => {
+            const product = productMap.get(item.product_id);
+            const variant = item.product_variant_id ? variantMap.get(item.product_variant_id) : null;
+            const variantImage = item.product_variant_id ? variantImageMap.get(item.product_variant_id) : null;
+            const productImage = variantImage || productImageMap.get(item.product_id) || '';
+
+            return {
+                ...item,
+                product_name: product?.name || 'Produit',
+                product_image: productImage,
+                variant_label: variant ? [
+                    variant.size && `Taille: ${variant.size}`,
+                    variant.color && `Couleur: ${variant.color}`
+                ].filter(Boolean).join(' • ') : ''
+            };
+        });
+
         return res.status(200).json({
             message: 'Commande du vendeur récupérée',
             data: {
                 ...sellerOrder,
                 order,
-                items: items || []
+                items: enrichedItems
             }
         });
     } catch (error) {
@@ -193,8 +362,8 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
         const { sellerOrderId } = req.params;
         const { status } = req.body;
 
-        if (!status || !['shipped', 'delivered'].includes(status)) {
-            return res.status(400).json({ message: 'Statut invalide. Doit être "expédié" ou "livré"' });
+        if (!status || !['confirmed', 'shipped', 'delivered'].includes(status)) {
+            return res.status(400).json({ message: 'Statut invalide. Doit être "confirmé", "expédié" ou "livré"' });
         }
 
         const { data: seller, error: sellerError } = await supabase
@@ -229,7 +398,7 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
         }
 
         const validTransitions = {
-            pending: ['shipped', 'cancelled'],
+            pending: ['confirmed', 'shipped', 'cancelled'],
             confirmed: ['shipped', 'cancelled'],
             shipped: ['delivered'],
             delivered: [],
@@ -248,7 +417,9 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
             updated_at: new Date().toISOString()
         };
 
-        if (status === 'shipped') {
+        if (status === 'confirmed') {
+            updatePayload.confirmed_at = new Date().toISOString();
+        } else if (status === 'shipped') {
             updatePayload.shipped_at = new Date().toISOString();
         } else if (status === 'delivered') {
             updatePayload.delivered_at = new Date().toISOString();
