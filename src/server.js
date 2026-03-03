@@ -56,6 +56,7 @@ const allowedOrigins = [
     'https://www.tishop.co',
     'https://seller.tishop.co',
     'https://pay.tishop.co',
+    'https://admin.tishop.co',
 ];
 
 app.use(cors({
