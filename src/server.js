@@ -116,6 +116,8 @@ app.use('/seller', require('./routes/sellers/payout/payouts'));
 app.use('/api/payments', require('./routes/payments/payments'));
 app.use('/api/moncash', require('./routes/payments/moncash'));
 app.use('/api/test-payment', require('./routes/testPayment'));
+app.use('/seller/payment', require('./routes/sellers/payment/payment'));
+app.use('/api/shop', require('./routes/shop/shopPaymentMethods'));
 
 // customer
 // app.use('/api/customer/auth', require('./routes/customers/auth/auth'));

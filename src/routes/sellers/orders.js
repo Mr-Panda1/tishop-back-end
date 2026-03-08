@@ -3,7 +3,10 @@ const router = express.Router();
 const authenticateUser = require('../../middlewares/authMiddleware');
 const { supabase } = require('../../db/supabase');
 const { sellerStoreLimiter } = require('../../middlewares/limit');
-const { sendCustomerOrderStatusEmail } = require('../../email/notifications/lifecycleNotifications');
+const { sendCustomerOrderStatusEmail, sendSellerOrderPaidEmail, sendCustomerOrderPaidEmail } = require('../../email/notifications/lifecycleNotifications');
+const { decryptFile } = require('../../utils/encryption');
+
+const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const verifyCodeMatch = (inputCode, storedCode) => inputCode === storedCode;
 
@@ -236,6 +239,430 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
     } catch (error) {
         console.error('Get seller orders error:', error);
         return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// GET seller earnings history (delivered orders)
+// GET /seller/orders/earnings
+router.get('/earnings', authenticateUser, sellerStoreLimiter, async (req, res) => {
+    try {
+        const user = req.user;
+
+        const { data: seller, error: sellerError } = await supabase
+            .from('sellers')
+            .select('id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (sellerError || !seller) {
+            return res.status(404).json({ message: 'Seller not found' });
+        }
+
+        const sellerId = seller.id;
+
+        // Fetch last 50 delivered seller_orders
+        const { data: sellerOrders, error: ordersError } = await supabase
+            .from('seller_orders')
+            .select('id, order_id, items_subtotal, delivery_fee, total_amount, delivered_at')
+            .eq('seller_id', sellerId)
+            .eq('status', 'delivered')
+            .order('delivered_at', { ascending: false })
+            .limit(50);
+
+        if (ordersError) {
+            console.error('Earnings fetch error:', ordersError);
+            return res.status(500).json({ message: 'Error fetching earnings' });
+        }
+
+        const orders = sellerOrders || [];
+
+        // Resolve order_number from parent orders table
+        const orderIds = orders.map(o => o.order_id);
+        const orderNumberMap = {};
+        if (orderIds.length > 0) {
+            const { data: parentOrders } = await supabase
+                .from('orders')
+                .select('id, order_number')
+                .in('id', orderIds);
+            (parentOrders || []).forEach(o => { orderNumberMap[o.id] = o.order_number; });
+        }
+
+        const earnings = orders.map(o => ({
+            id: o.id,
+            order_number: orderNumberMap[o.order_id] ?? 'N/A',
+            items_subtotal: Number(o.items_subtotal),
+            delivery_fee: Number(o.delivery_fee),
+            total_amount: Number(o.total_amount),
+            delivered_at: o.delivered_at,
+        }));
+
+        // Total earned across ALL delivered orders (not just last 50)
+        const { data: allDelivered } = await supabase
+            .from('seller_orders')
+            .select('total_amount')
+            .eq('seller_id', sellerId)
+            .eq('status', 'delivered');
+
+        const total_earned = (allDelivered || []).reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+        return res.json({ success: true, total_earned, earnings });
+    } catch (error) {
+        console.error('Seller earnings error:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// GET seller dashboard stats
+// GET /seller/orders/stats
+router.get('/stats', authenticateUser, sellerStoreLimiter, async (req, res) => {
+    try {
+        const user = req.user;
+
+        const { data: seller, error: sellerError } = await supabase
+            .from('sellers')
+            .select('id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (sellerError || !seller) {
+            return res.status(404).json({ message: 'Seller not found' });
+        }
+
+        const sellerId = seller.id;
+
+        // Fetch all seller_orders for this seller (lightweight)
+        const { data: allOrders, error: ordersError } = await supabase
+            .from('seller_orders')
+            .select('id, total_amount, items_subtotal, status, created_at, shop_id')
+            .eq('seller_id', sellerId);
+
+        if (ordersError) {
+            console.error('Stats orders error:', ordersError);
+            return res.status(500).json({ message: 'Error fetching orders' });
+        }
+
+        const orders = allOrders || [];
+
+        // Date boundaries
+        const now = new Date();
+        const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+        const totalOrders = orders.length;
+        const pendingOrders = orders.filter(o => o.status === 'pending').length;
+
+        const completedOrders = orders.filter(o => o.status === 'delivered');
+        const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+        const averageOrderValue = completedOrders.length > 0
+            ? totalRevenue / completedOrders.length
+            : 0;
+
+        const ordersThisMonth = orders.filter(o => new Date(o.created_at) >= startOfThisMonth).length;
+        const ordersLastMonth = orders.filter(o => {
+            const d = new Date(o.created_at);
+            return d >= startOfLastMonth && d <= endOfLastMonth;
+        }).length;
+
+        // Top-selling products via seller_order_items
+        const shopIds = [...new Set(orders.map(o => o.shop_id).filter(Boolean))];
+        let topProducts = [];
+
+        if (shopIds.length > 0) {
+            const orderIds = orders.map(o => o.id);
+
+            const { data: itemsData, error: itemsError } = await supabase
+                .from('order_items')
+                .select('product_id, quantity, unit_price')
+                .in('seller_order_id', orderIds);
+
+            if (!itemsError && itemsData && itemsData.length > 0) {
+                // Aggregate by product
+                const productTotals = {};
+                for (const item of itemsData) {
+                    if (!item.product_id) continue;
+                    if (!productTotals[item.product_id]) {
+                        productTotals[item.product_id] = { product_id: item.product_id, total_quantity: 0, total_revenue: 0 };
+                    }
+                    productTotals[item.product_id].total_quantity += Number(item.quantity) || 0;
+                    productTotals[item.product_id].total_revenue += (Number(item.quantity) || 0) * (Number(item.unit_price) || 0);
+                }
+
+                const sorted = Object.values(productTotals)
+                    .sort((a, b) => b.total_quantity - a.total_quantity)
+                    .slice(0, 5);
+
+                const productIds = sorted.map(p => p.product_id);
+                const { data: productsData } = await supabase
+                    .from('products')
+                    .select('id, name, product_images(image_url, is_main)')
+                    .in('id', productIds);
+
+                const productsById = new Map((productsData || []).map(p => [p.id, p]));
+
+                topProducts = sorted.map(p => {
+                    const product = productsById.get(p.product_id);
+                    const mainImg = product?.product_images?.find(i => i.is_main) ?? product?.product_images?.[0];
+                    return {
+                        product_id: p.product_id,
+                        name: product?.name ?? 'Produit inconnu',
+                        image_url: mainImg?.image_url ?? null,
+                        total_quantity: p.total_quantity,
+                        total_revenue: p.total_revenue,
+                    };
+                });
+            }
+        }
+
+        // Unread messages count — conversations.seller_id = auth.users.id (not sellers.id)
+        const { data: convData } = await supabase
+            .from('conversations')
+            .select('seller_unread_count')
+            .eq('seller_id', user.id);
+
+        const unreadMessages = (convData || []).reduce((sum, c) => sum + (Number(c.seller_unread_count) || 0), 0);
+
+        return res.json({
+            success: true,
+            stats: {
+                totalOrders,
+                pendingOrders,
+                totalRevenue,
+                averageOrderValue,
+                ordersThisMonth,
+                ordersLastMonth,
+                topProducts,
+                unreadMessages: unreadMessages ?? 0,
+            }
+        });
+    } catch (error) {
+        console.error('Seller stats error:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// GET payment proof image for a seller order
+router.get('/:sellerOrderId/payment-proof', authenticateUser, sellerStoreLimiter, async (req, res) => {
+    try {
+        const user = req.user;
+        const { sellerOrderId } = req.params;
+
+        // Verify this seller order belongs to the authenticated seller
+        const { data: seller, error: sellerError } = await supabase
+            .from('sellers')
+            .select('id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (sellerError || !seller) {
+            return res.status(403).json({ message: 'Seller not found' });
+        }
+
+        const { data: sellerOrder, error: sellerOrderError } = await supabase
+            .from('seller_orders')
+            .select('id, seller_id, order_id')
+            .eq('id', sellerOrderId)
+            .eq('seller_id', seller.id)
+            .maybeSingle();
+
+        if (sellerOrderError || !sellerOrder) {
+            return res.status(404).json({ message: 'Seller order not found' });
+        }
+
+        // Fetch payment proof fields from the orders table
+        const { data: order, error: orderError } = await supabase
+            .from('orders')
+            .select('id, payment_method, manual_payment_proof_path, manual_payment_proof_iv, manual_payment_proof_auth_tag')
+            .eq('id', sellerOrder.order_id)
+            .single();
+
+        if (orderError || !order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+
+        if (order.payment_method !== 'manual' || !order.manual_payment_proof_path) {
+            return res.status(400).json({ message: 'No payment proof available for this order' });
+        }
+
+        const { manual_payment_proof_path: filePath, manual_payment_proof_iv: iv, manual_payment_proof_auth_tag: authTag } = order;
+
+        if (!filePath || !iv || !authTag) {
+            return res.status(400).json({ message: 'Payment proof metadata incomplete' });
+        }
+
+        const { data: encryptedData, error: downloadError } = await supabase.storage
+            .from('customer_payment_proof')
+            .download(filePath);
+
+        if (downloadError) {
+            console.error('Download error:', downloadError);
+            return res.status(500).json({ message: 'Error downloading payment proof' });
+        }
+
+        const encryptedBuffer = Buffer.from(await encryptedData.arrayBuffer());
+        const decryptedBuffer = decryptFile(encryptedBuffer, iv, authTag);
+
+        res.set('Content-Type', 'image/webp');
+        res.set('Content-Disposition', 'inline; filename="payment-proof.webp"');
+        res.send(decryptedBuffer);
+
+    } catch (error) {
+        console.error('Error serving payment proof:', error);
+        return res.status(500).json({ message: 'Error retrieving payment proof' });
+    }
+});
+
+// PUT verify manual payment for a seller order
+router.put('/:sellerOrderId/verify-payment', authenticateUser, sellerStoreLimiter, async (req, res) => {
+    try {
+        const user = req.user;
+        const { sellerOrderId } = req.params;
+        const { approved, rejection_reason } = req.body;
+
+        if (typeof approved !== 'boolean') {
+            return res.status(400).json({ success: false, message: 'Approved field must be a boolean' });
+        }
+
+        // Verify this seller order belongs to the authenticated seller
+        const { data: seller, error: sellerError } = await supabase
+            .from('sellers')
+            .select('id, first_name, last_name, email')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (sellerError || !seller) {
+            return res.status(403).json({ success: false, message: 'Seller not found' });
+        }
+
+        const { data: sellerOrder, error: sellerOrderError } = await supabase
+            .from('seller_orders')
+            .select('id, seller_id, order_id, total_amount, delivery_code_full')
+            .eq('id', sellerOrderId)
+            .eq('seller_id', seller.id)
+            .maybeSingle();
+
+        if (sellerOrderError || !sellerOrder) {
+            return res.status(404).json({ success: false, message: 'Seller order not found' });
+        }
+
+        // Fetch the parent order
+        const { data: order, error: orderError } = await supabase
+            .from('orders')
+            .select('id, order_number, customer_name, customer_email, total_amount, payment_method, status, manual_payment_verified_at')
+            .eq('id', sellerOrder.order_id)
+            .single();
+
+        if (orderError || !order) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+
+        if (order.payment_method !== 'manual') {
+            return res.status(400).json({ success: false, message: 'This order does not use manual payment method' });
+        }
+
+        if (order.manual_payment_verified_at) {
+            return res.status(409).json({ success: false, message: 'Payment for this order has already been verified' });
+        }
+
+        const now = new Date().toISOString();
+        const updatePayload = approved
+            ? {
+                manual_payment_verified_at: now,
+                manual_payment_verified_by: user.id,
+                manual_payment_rejection_reason: null,
+                status: 'paid'
+            }
+            : {
+                manual_payment_rejection_reason: rejection_reason ? rejection_reason.trim() : null,
+                manual_payment_rejected_at: now,
+                manual_payment_rejected_by: user.id,
+                status: 'cancelled'
+            };
+
+        const { data: updatedOrder, error: updateError } = await supabase
+            .from('orders')
+            .update(updatePayload)
+            .eq('id', sellerOrder.order_id)
+            .select()
+            .single();
+
+        if (updateError) {
+            console.error('Error updating order:', updateError);
+            return res.status(500).json({ success: false, message: 'Failed to verify payment' });
+        }
+
+        // On approval: generate delivery codes for all seller orders and send emails
+        if (approved) {
+            const { data: allSellerOrders, error: allSellerOrdersError } = await supabase
+                .from('seller_orders')
+                .select('id, seller_id, total_amount, delivery_code_full')
+                .eq('order_id', sellerOrder.order_id);
+
+            if (!allSellerOrdersError && allSellerOrders && allSellerOrders.length > 0) {
+                for (const so of allSellerOrders) {
+                    if (so.delivery_code_full) continue;
+                    const code = generateDeliveryCode();
+                    await supabase
+                        .from('seller_orders')
+                        .update({ delivery_code_full: code, delivery_code_attempts: 0, updated_at: now })
+                        .eq('id', so.id);
+                }
+
+                const sellerIds = [...new Set(allSellerOrders.map(so => so.seller_id).filter(Boolean))];
+                const { data: sellers } = await supabase
+                    .from('sellers')
+                    .select('id, first_name, last_name, email')
+                    .in('id', sellerIds);
+
+                const sellersById = new Map((sellers || []).map(s => [s.id, s]));
+
+                await Promise.all(allSellerOrders.map(async (so) => {
+                    const s = sellersById.get(so.seller_id);
+                    if (!s?.email) return;
+                    try {
+                        await sendSellerOrderPaidEmail({
+                            toEmail: s.email,
+                            sellerName: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Vendeur',
+                            orderNumber: order.order_number,
+                            sellerTotal: so.total_amount
+                        });
+                    } catch (emailError) {
+                        console.error(`Error sending paid email to seller ${s.email}:`, emailError.message);
+                    }
+                }));
+            }
+
+            if (order.customer_email) {
+                try {
+                    await sendCustomerOrderPaidEmail({
+                        toEmail: order.customer_email,
+                        customerName: order.customer_name,
+                        orderNumber: order.order_number,
+                        totalAmount: order.total_amount
+                    });
+                } catch (emailError) {
+                    console.error('Error sending paid email to customer:', emailError.message);
+                }
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: approved ? 'Payment verified successfully' : 'Payment rejected successfully',
+            data: {
+                sellerOrderId,
+                orderId: sellerOrder.order_id,
+                approved,
+                verifiedAt: approved ? now : null,
+                rejectionReason: approved ? null : (rejection_reason ? rejection_reason.trim() : null),
+                status: updatedOrder.status,
+                verifiedBy: user.id
+            }
+        });
+
+    } catch (error) {
+        console.error('Error verifying payment:', error.message);
+        return res.status(500).json({ success: false, message: 'An error occurred while verifying payment' });
     }
 });
 

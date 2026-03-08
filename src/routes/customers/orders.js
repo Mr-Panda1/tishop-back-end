@@ -36,6 +36,8 @@ router.post('/upload-manual-payment-proof', generalLimiter, upload.single('payme
             ? crypto.randomUUID()
             : crypto.randomBytes(16).toString('hex');
 
+        const now = new Date();
+        const localNow = new Date(now.getTime() - (now.getTimezoneOffset() * 60000));
         const dayPrefix = localNow.toISOString().slice(0, 10);
         const filePath = `${dayPrefix}/${proofId}.enc`;
 
@@ -87,6 +89,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             neighborhood,
             landmark,
             deliveryMethod = 'delivery',
+            pickupPointId,
             paymentMethod = 'moncash',
             manualPaymentProof,
             cartItems
@@ -119,7 +122,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             return res.status(400).json({ message: 'Le nom, l\'adresse e-mail et le téléphone du client sont requis' });
         }
 
-        if (!departmentId || !arrondissementId || !communeId || !landmark) {
+        if (deliveryMethod !== 'pickup' && (!departmentId || !arrondissementId || !communeId || !landmark)) {
             return res.status(400).json({ message: 'Les détails du lieu de livraison sont requis' });
         }
 
@@ -224,22 +227,25 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             return res.status(400).json({ message: 'One or more shops could not be resolved for the cart' });
         }
 
-        const { data: deliveryOptions, error: deliveryError } = await supabase
-            .from('delivery_options')
-            .select('id, shop_id, price, estimated_days, is_active')
-            .in('shop_id', shopIds)
-            .eq('commune_id', communeId)
-            .eq('is_active', true);
+        let deliveryMap = new Map();
+        if (deliveryMethod !== 'pickup') {
+            const { data: deliveryOptions, error: deliveryError } = await supabase
+                .from('delivery_options')
+                .select('id, shop_id, price, estimated_days, is_active')
+                .in('shop_id', shopIds)
+                .eq('commune_id', communeId)
+                .eq('is_active', true);
 
-        if (deliveryError) {
-            console.error('Error fetching delivery options:', deliveryError);
-            return res.status(500).json({ message: 'Error fetching delivery options' });
-        }
+            if (deliveryError) {
+                console.error('Error fetching delivery options:', deliveryError);
+                return res.status(500).json({ message: 'Error fetching delivery options' });
+            }
 
-        const deliveryMap = new Map((deliveryOptions || []).map(option => [option.shop_id, option]));
-        for (const shopId of shopIds) {
-            if (!deliveryMap.has(shopId)) {
-                return res.status(400).json({ message: 'Un ou plusieurs vendeurs ne livrent pas vers la commune sélectionnée' });
+            deliveryMap = new Map((deliveryOptions || []).map(option => [option.shop_id, option]));
+            for (const shopId of shopIds) {
+                if (!deliveryMap.has(shopId)) {
+                    return res.status(400).json({ message: 'Un ou plusieurs vendeurs ne livrent pas vers la commune sélectionnée' });
+                }
             }
         }
 
@@ -258,7 +264,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         for (const [shopId, items] of sellerGroups.entries()) {
             const itemsSubtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
             const deliveryOption = deliveryMap.get(shopId);
-            const deliveryFee = deliveryMethod === 'delivery' ? Number(deliveryOption.price) : 0;
+            const deliveryFee = deliveryMethod === 'delivery' && deliveryOption ? Number(deliveryOption.price) : 0;
             const sellerTotal = itemsSubtotal + deliveryFee;
 
             const shop = shopMap.get(shopId);
@@ -267,7 +273,8 @@ router.post('/create-order', generalLimiter, async (req, res) => {
                 seller_id: shop.seller_id,
                 shop_id: shopId,
                 delivery_method: deliveryMethod,
-                delivery_option_id: deliveryOption.id,
+                delivery_option_id: deliveryOption?.id ?? null,
+                pickup_point_id: deliveryMethod === 'pickup' ? (pickupPointId ?? null) : null,
                 items_subtotal: itemsSubtotal,
                 delivery_fee: deliveryFee,
                 total_amount: sellerTotal,
@@ -670,7 +677,7 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
         // Fetch seller orders
         const { data: sellerOrders, error: sellerOrdersError } = await supabase
             .from('seller_orders')
-            .select('id, order_id, seller_id, shop_id, items_subtotal, delivery_fee, total_amount, status, confirmed_at, shipped_at, delivered_at, delivery_code_full')
+            .select('id, order_id, seller_id, shop_id, items_subtotal, delivery_fee, total_amount, status, confirmed_at, shipped_at, delivered_at, delivery_code_full, delivery_method, pickup_point_id')
             .eq('order_id', orderId);
 
         if (sellerOrdersError) {
@@ -683,6 +690,17 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
         
         let orderItems = [];
         let shops = [];
+
+        // Fetch pickup points for any pickup orders
+        const pickupPointIds = [...new Set((sellerOrders || []).map(so => so.pickup_point_id).filter(Boolean))];
+        let pickupPointMap = new Map();
+        if (pickupPointIds.length > 0) {
+            const { data: pickupPoints } = await supabase
+                .from('pickup_points')
+                .select('id, commune_id, quartier, landmark, instructions, phone, gps_coordinates')
+                .in('id', pickupPointIds);
+            (pickupPoints || []).forEach(pp => pickupPointMap.set(pp.id, pp));
+        }
 
         // Fetch shops
         if (shopIds.length > 0) {
@@ -819,6 +837,8 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
                     id: so.id,
                     seller_id: so.seller_id,
                     status: so.status,
+                    delivery_method: so.delivery_method || 'delivery',
+                    pickup_point: so.pickup_point_id ? (pickupPointMap.get(so.pickup_point_id) ?? null) : null,
                     items_subtotal: so.items_subtotal,
                     delivery_fee: so.delivery_fee,
                     total: so.total_amount,

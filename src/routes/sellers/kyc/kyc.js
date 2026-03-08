@@ -30,13 +30,10 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                 commune_id,
                 id_type,
                 id_number,
-                payout_method,
-                payout_account_name,
-                payout_account_number
              } = req.body
 
             //  Validate required fields
-            if (!first_name?.trim() || !last_name?.trim() || !date_of_birth?.trim() || !commune_id?.trim() || !id_type?.trim() || !id_number?.trim() || !payout_method?.trim() || !payout_account_name?.trim() || !payout_account_number?.trim() || !phone?.trim()) {
+            if (!first_name?.trim() || !last_name?.trim() || !date_of_birth?.trim() || !commune_id?.trim() || !id_type?.trim() || !id_number?.trim() || !phone?.trim()) {
                 return res.status(400).json({ error: 'All fields are required' });
             }
 
@@ -83,9 +80,6 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
                     commune_id,
                     id_type,
                     id_number,
-                    payout_method,
-                    payout_account_name,
-                    payout_account_number,
                     status: 'pending',
                     submitted_at: new Date().toISOString()
                 })
