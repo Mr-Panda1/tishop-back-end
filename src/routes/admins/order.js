@@ -411,12 +411,25 @@ router.put('/admin/orders/:orderId/verify-payment',
                 }
 
                 if (order.customer_email) {
+                    // Re-fetch seller orders with updated codes and shop names for customer email
+                    const { data: sellerOrdersWithCodes } = await supabase
+                        .from('seller_orders')
+                        .select('delivery_code_full, shop:shops(name)')
+                        .eq('order_id', orderId)
+                        .not('delivery_code_full', 'is', null);
+
+                    const deliveryCodes = (sellerOrdersWithCodes || []).map(so => ({
+                        shopName: so.shop?.name || 'Boutique',
+                        code: so.delivery_code_full
+                    }));
+
                     try {
                         await sendCustomerOrderPaidEmail({
                             toEmail: order.customer_email,
                             customerName: order.customer_name,
                             orderNumber: order.order_number,
-                            totalAmount: order.total_amount
+                            totalAmount: order.total_amount,
+                            deliveryCodes
                         });
                     } catch (emailError) {
                         console.error('Error sending paid email to customer:', emailError.message);

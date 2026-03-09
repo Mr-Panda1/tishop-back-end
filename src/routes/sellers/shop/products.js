@@ -661,33 +661,38 @@ router.patch('/update-seller-products/:id',
             const files = req.files || [];
             const existingImageIds = existing_images ? JSON.parse(typeof existing_images === 'string' ? existing_images : JSON.stringify(existing_images)) : [];
 
-            // Delete product images not in the existing_images list
-            if (existingImageIds.length > 0 || files.length === 0) {
-                const { data: allProductImages } = await supabase
-                    .from('product_images')
-                    .select('id, image_url')
-                    .eq('product_id', productId);
+            // Delete product images not in the existing_images list (always run)
+            const { data: allProductImages } = await supabase
+                .from('product_images')
+                .select('id, image_url')
+                .eq('product_id', productId);
 
-                if (allProductImages) {
-                    const imagesToDelete = allProductImages.filter(img => !existingImageIds.includes(img.id));
-                    for (const img of imagesToDelete) {
-                        // Extract storage path from URL and delete
-                        const urlParts = img.image_url.split('/');
-                        if (urlParts.length >= 2) {
-                            const storagePath = urlParts.slice(-4).join('/');
-                            await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
-                        }
-                    }
-
-                    if (imagesToDelete.length > 0) {
-                        const deleteIds = imagesToDelete.map(img => img.id);
-                        await supabase
-                            .from('product_images')
-                            .delete()
-                            .in('id', deleteIds);
+            if (allProductImages) {
+                const imagesToDelete = allProductImages.filter(img => !existingImageIds.includes(img.id));
+                for (const img of imagesToDelete) {
+                    // Extract storage path from URL and delete
+                    const urlParts = img.image_url.split('/');
+                    if (urlParts.length >= 2) {
+                        const storagePath = urlParts.slice(-4).join('/');
+                        await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
                     }
                 }
+
+                if (imagesToDelete.length > 0) {
+                    const deleteIds = imagesToDelete.map(img => img.id);
+                    await supabase
+                        .from('product_images')
+                        .delete()
+                        .in('id', deleteIds);
+                }
             }
+
+            // Count remaining images after deletion to compute correct positions
+            const { count: remainingImageCount } = await supabase
+                .from('product_images')
+                .select('id', { count: 'exact', head: true })
+                .eq('product_id', productId);
+            const basePosition = remainingImageCount || 0;
 
             // Upload new images if provided
             const uploadedNewFiles = [];
@@ -729,11 +734,19 @@ router.patch('/update-seller-products/:id',
 
             // Insert new product images
             if (uploadedNewFiles.length > 0) {
+                // If there are no remaining images, clear is_main on all (shouldn't exist, but safety)
+                if (basePosition === 0) {
+                    await supabase
+                        .from('product_images')
+                        .update({ is_main: false })
+                        .eq('product_id', productId);
+                }
+
                 const newImageRecords = uploadedNewFiles.map((file, idx) => ({
                     product_id: productId,
                     image_url: file.url,
-                    position: existingImageIds.length + idx,
-                    is_main: existingImageIds.length === 0 && idx === 0
+                    position: basePosition + idx,
+                    is_main: basePosition === 0 && idx === 0
                 }));
 
                 const { error: imageInsertError } = await supabase

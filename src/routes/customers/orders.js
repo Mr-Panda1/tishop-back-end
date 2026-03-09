@@ -90,12 +90,12 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             landmark,
             deliveryMethod = 'delivery',
             pickupPointId,
-            paymentMethod = 'moncash',
+            paymentMethod = 'manual',
             manualPaymentProof,
             cartItems
         } = req.body;
 
-        if (!['moncash', 'manual'].includes(paymentMethod)) {
+        if (!['manual', 'moncash', 'natcash'].includes(paymentMethod)) {
             return res.status(400).json({ message: 'Méthode de paiement invalide' });
         }
 
@@ -139,7 +139,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
 
         const { data: products, error: productsError } = await supabase
             .from('products')
-            .select('id, shop_id, price, stock, has_variants')
+            .select('id, shop_id, price, stock, has_variants, name')
             .in('id', productIds);
 
         if (productsError) {
@@ -204,6 +204,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
                 productId: product.id,
                 productVariantId: variantId,
                 shopId: product.shop_id,
+                productName: product.name || '',
                 quantity,
                 unitPrice,
                 lineTotal: unitPrice * quantity
@@ -214,7 +215,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
 
         const { data: shops, error: shopsError } = await supabase
             .from('shops')
-            .select('id, seller_id')
+            .select('id, seller_id, name, logo_url')
             .in('id', shopIds);
 
         if (shopsError) {
@@ -395,13 +396,66 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             }
         }
 
+        // Fetch product images and variant images for seller email
+        const emailProductIds = [...new Set(normalizedItems.map(i => i.productId))];
+        const emailVariantIds = [...new Set(normalizedItems.map(i => i.productVariantId).filter(Boolean))];
+        const emailProductImageMap = new Map();
+        const emailVariantImageMap = new Map();
+
+        if (emailProductIds.length > 0) {
+            const { data: productImages } = await supabase
+                .from('product_images')
+                .select('product_id, image_url, position, is_main')
+                .in('product_id', emailProductIds);
+            (productImages || []).forEach(img => {
+                const existing = emailProductImageMap.get(img.product_id);
+                if (!existing || img.is_main || img.position < existing.position) {
+                    emailProductImageMap.set(img.product_id, img);
+                }
+            });
+        }
+
+        if (emailVariantIds.length > 0) {
+            const { data: variantImages } = await supabase
+                .from('product_variant_images')
+                .select('product_variant_id, image_url, position, is_main')
+                .in('product_variant_id', emailVariantIds);
+            (variantImages || []).forEach(img => {
+                const existing = emailVariantImageMap.get(img.product_variant_id);
+                if (!existing || img.is_main || img.position < existing.position) {
+                    emailVariantImageMap.set(img.product_variant_id, img);
+                }
+            });
+        }
+
         try {
+            const [shopId, shopItems] = [...sellerGroups.entries()][0] || [];
+            const shop = shopMap.get(shopId);
+            const sellerOrder = sellerOrderMap.get(shopId);
+            const emailItems = (shopItems || []).map(item => {
+                const variantImg = item.productVariantId ? emailVariantImageMap.get(item.productVariantId) : null;
+                const productImg = variantImg || emailProductImageMap.get(item.productId);
+                return {
+                    productName: item.productName,
+                    imageUrl: productImg?.image_url || '',
+                    variant: null,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    lineTotal: item.lineTotal
+                };
+            });
             await sendCustomerOrderPlacedEmail({
                 toEmail: customerEmail,
                 customerName,
                 orderNumber,
+                orderId,
                 totalAmount,
-                paymentMethod
+                orderDate: orderData.created_at,
+                sellerName: shop?.name || 'Boutique',
+                sellerLogoUrl: shop?.logo_url || '',
+                items: emailItems,
+                itemsSubtotal: sellerOrder?.items_subtotal ?? 0,
+                deliveryFee: sellerOrder?.delivery_fee ?? 0
             });
         } catch (error) {
             console.error('Error sending customer order placed email:', error.message);
@@ -414,13 +468,36 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             }
 
             try {
+                const shopItems = sellerGroups.get(sellerOrder.shop_id) || [];
+                const emailItems = shopItems.map(item => {
+                    const variantImg = item.productVariantId ? emailVariantImageMap.get(item.productVariantId) : null;
+                    const productImg = variantImg || emailProductImageMap.get(item.productId);
+                    return {
+                        productName: item.productName,
+                        imageUrl: productImg?.image_url || '',
+                        variant: null,
+                        quantity: item.quantity,
+                        unitPrice: item.unitPrice,
+                        lineTotal: item.lineTotal
+                    };
+                });
+                const deliveryAddress = [neighborhood, landmark].filter(Boolean).join(' — ');
+                const shop = shopMap.get(sellerOrder.shop_id);
                 await sendSellerNewOrderEmail({
                     toEmail: seller.email,
                     sellerName: `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur',
+                    shopName: shop?.name || '',
+                    shopLogoUrl: shop?.logo_url || '',
                     orderNumber,
                     customerName,
+                    customerPhone,
                     sellerTotal: sellerOrder.total_amount,
-                    paymentMethod
+                    subtotal: sellerOrder.items_subtotal,
+                    deliveryFee: sellerOrder.delivery_fee,
+                    paymentMethod,
+                    items: emailItems,
+                    deliveryAddress,
+                    orderDate: orderData.created_at
                 });
             } catch (error) {
                 console.error(`Error sending seller new order email to ${seller.email}:`, error.message);
@@ -813,7 +890,7 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
             customer_name: order.customer_name,
             customer_email: order.customer_email,
             customer_phone: order.customer_phone,
-            payment_method: order.payment_method || 'moncash',
+            payment_method: order.payment_method || 'manual',
             manual_payment: {
                 transaction_ref: order.manual_payment_reference || null,
                 sender_phone: order.manual_payment_sender_phone || null,

@@ -18,12 +18,6 @@ const env = {
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET,
     jwtSecret: process.env.JWT,
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-    clientId: process.env.MONCASH_CLIENT_ID,
-    clientsecret: process.env.MONCASH_CLIENT_SECRET,
-    moncashMode: process.env.MONCASH_MODE || 'sandbox',
-    moncashReturnUrl: process.env.MONCASH_RETURN_URL || 'https://pay.tishop.co/api/moncash/return',
-    moncashWebhookUrl: process.env.MONCASH_WEBHOOK_URL || 'https://pay.tishop.co/api/moncash/webhook',
-    frontendOrderConfirmationUrl: process.env.FRONTEND_ORDER_CONFIRMATION_URL || 'https://tishop.co/shop/order-confirmation',
 
     // Email (Brevo/Sendinblue) configuration
     host: process.env.BREVO_SMTP_HOST || "smtp-relay.brevo.com",

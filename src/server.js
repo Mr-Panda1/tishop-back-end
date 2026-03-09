@@ -113,9 +113,6 @@ app.use('/seller/shop/product', require('./routes/sellers/shop/products'));
 app.use('/seller/kyc', require('./routes/sellers/kyc/kyc'));
 app.use('/seller/orders', require('./routes/sellers/orders'));
 app.use('/seller', require('./routes/sellers/payout/payouts'));
-app.use('/api/payments', require('./routes/payments/payments'));
-app.use('/api/moncash', require('./routes/payments/moncash'));
-app.use('/api/test-payment', require('./routes/testPayment'));
 app.use('/seller/payment', require('./routes/sellers/payment/payment'));
 app.use('/api/shop', require('./routes/shop/shopPaymentMethods'));
 
@@ -124,9 +121,6 @@ app.use('/api/shop', require('./routes/shop/shopPaymentMethods'));
 app.use('/customer/shop/category', require('./routes/customers/category'));
 // app.use('/customer/shop/product', require('./routes/customers/products'));
 app.use('/customer/orders', require('./routes/customers/orders'));
-
-// Payment checkout page (must be on pay.tishop.co to avoid MonCash blocking)
-app.use('/', require('./routes/checkout'));
 
 // Admin 
 app.use('/api', require('./routes/admins/auth'));
