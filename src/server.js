@@ -57,6 +57,7 @@ const allowedOrigins = [
     'https://seller.tishop.co',
     'https://pay.tishop.co',
     'https://admin.tishop.co',
+    'https://tishop-admin.vercel.app'
 ];
 
 app.use(cors({
