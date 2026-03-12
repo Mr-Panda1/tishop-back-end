@@ -291,6 +291,10 @@ router.post('/add-location',sellerStoreLimiter, authenticateUser, async (req, re
         .single();
 
         if (error) {
+            console.error('Error inserting shop location:', error);
+            if (error.code === '23505') {
+                return res.status(409).json({ message: 'Cette zone de vente existe déjà.' });
+            }
             return res.status(400).json({message: "Error while adding shop location. Please try again later"})
         }
 

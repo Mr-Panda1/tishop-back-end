@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const authenticateUser = require('../../../middlewares/authMiddleware');
 const { supabase } = require('../../../db/supabase');
-const { sellerStoreLimiter } = require('../../../middlewares/limit');
+const { sellerStoreLimiter, sellerProductLimiter } = require('../../../middlewares/limit');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const { cp } = require('fs');
@@ -16,7 +16,7 @@ const IMAGE_QUALITY = 80;
 // POST /sellers/shop/products
 router.post('/add-product', 
     authenticateUser, 
-    sellerStoreLimiter,
+    sellerProductLimiter,
     upload.array('images', MAX_IMAGES),
     async (req, res) => {
         try {
@@ -522,7 +522,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
 // PATCH /sellers/shop/products/:id
 router.patch('/update-seller-products/:id', 
     authenticateUser, 
-    sellerStoreLimiter,
+    sellerProductLimiter,
     upload.array('images', MAX_IMAGES),
     async (req, res) => {
         try {
@@ -901,7 +901,7 @@ router.patch('/update-seller-products/:id',
 
 // DELETE /sellers/shop/products
 // TODO: DELETE PRODUCT - complete the implementation later
-router.delete('/delete-seller-products/:id', authenticateUser, sellerStoreLimiter, async (req, res) => {
+router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimiter, async (req, res) => {
     try {
         const user = req.user;
         const productId = req.params.id;

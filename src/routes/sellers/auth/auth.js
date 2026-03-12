@@ -304,4 +304,31 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
 })
 
 
+// Seller logout route
+// POST /api/seller/logout
+router.post('/seller/logout', async (req, res) => {
+    try {
+        const accessToken = req.cookies?.access_token;
+
+        if (accessToken) {
+            await supabaseAdmin.auth.admin.signOut(accessToken);
+        }
+    } catch (error) {
+        console.log("Logout warning:", error.message);
+    }
+
+    const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        path: '/',
+        ...(process.env.NODE_ENV === 'production' && { domain: '.tishop.co' })
+    };
+
+    res.clearCookie('access_token', cookieOptions);
+    res.clearCookie('refresh_token', cookieOptions);
+
+    return res.status(200).json({ message: 'Déconnexion réussie.' });
+});
+
 module.exports = router;
