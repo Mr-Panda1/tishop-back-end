@@ -174,11 +174,8 @@ router.post('/add-product',
                         .webp({ quality: IMAGE_QUALITY })
                         .toBuffer();
                     const uniqueId = crypto.randomUUID();
-                    // If this file is tied to a variant, store under variants path; otherwise product path
-                    const isVariantFile = fileToVariantMap.has(i);
-                    const filePath = isVariantFile
-                        ? `products/${shopRow.id}/${productId}/variants/${uniqueId}.webp`
-                        : `products/${shopRow.id}/${productId}/${uniqueId}.webp`;
+                    // All images go to the same product path — product_images is the single source of truth
+                    const filePath = `products/${shopRow.id}/${productId}/${uniqueId}.webp`;
 
                     const { error: uploadError } = await supabase
                         .storage
@@ -206,28 +203,26 @@ router.post('/add-product',
                 }
             }
 
-            // Insert product-level images (files not referenced by any variant)
-            const productImageRecords = [];
-            for (let i = 0; i < uploadedFiles.length; i++) {
-                if (!fileToVariantMap.has(i)) {
-                    productImageRecords.push({
-                        product_id: productId,
-                        image_url: uploadedFiles[i].url,
-                        position: productImageRecords.length,
-                        is_main: productImageRecords.length === 0
-                    });
-                }
-            }
+            // Insert ALL uploaded images into product_images (single source of truth for gallery)
+            const productImageRecords = uploadedFiles.map((f, i) => ({
+                product_id: productId,
+                image_url: f.url,
+                position: i,
+                is_main: i === 0
+            }));
 
+            let insertedProductImages = [];
             if (productImageRecords.length > 0) {
-                const { error: imageInsertError } = await supabase
+                const { data: insertedImgs, error: imageInsertError } = await supabase
                     .from('product_images')
-                    .insert(productImageRecords);
+                    .insert(productImageRecords)
+                    .select('id, image_url, position');
 
                 if (imageInsertError) {
                     console.error('Error inserting product image records:', imageInsertError);
                     return res.status(500).json({ message: 'Erreur lors de l\'enregistrement des images de produit' });
                 }
+                insertedProductImages = insertedImgs || [];
             }
 
             // Insert variants (if provided) into `product_variants` table and get inserted rows
@@ -264,19 +259,20 @@ router.post('/add-product',
                 return res.status(500).json({ message: 'Produit créé mais le traitement des variantes a échoué' });
             }
 
-            // Insert variant images mapping uploaded files to created variant IDs
+            // Insert variant images — link product_images URLs to variants via product_variant_images
             const variantImageRecords = [];
             for (const [fileIdx, mappings] of fileToVariantMap.entries()) {
-                const uploaded = uploadedFiles[fileIdx];
-                if (!uploaded) continue;
+                // Find the product_image row that was inserted for this file index
+                const productImg = insertedProductImages.find(img => img.position === fileIdx);
+                if (!productImg) continue;
                 for (const mapEntry of mappings) {
                     const vIdx = mapEntry.variantIndex;
                     const pos = mapEntry.position || 0;
                     const variantRow = insertedVariants[vIdx];
-                    if (!variantRow) continue; // no matching inserted variant
+                    if (!variantRow) continue;
                     variantImageRecords.push({
                         product_variant_id: variantRow.id,
-                        image_url: uploaded.url,
+                        image_url: productImg.image_url,
                         position: pos,
                         is_main: pos === 0
                     });
@@ -466,7 +462,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
         let query = supabase.from('products').select(
             `*,
             shop:shops(id, name, logo_url),
-            images:product_images(image_url, position, is_main),
+            images:product_images(id, image_url, position, is_main),
             variants:product_variants(
                 id, sku, size, size_value, color, attributes, price, stock, is_limited_stock, low_stock_threshold,
                 images:product_variant_images(image_url, position, is_main)
@@ -759,6 +755,15 @@ router.patch('/update-seller-products/:id',
                 }
             }
 
+            // Fetch the full ordered product_images list AFTER all insert/delete operations
+            // (needed to resolve variant.images indices to real URLs for product_variant_images)
+            const { data: currentProductImages } = await supabase
+                .from('product_images')
+                .select('id, image_url, position')
+                .eq('product_id', productId)
+                .order('position', { ascending: true });
+            const orderedProductImages = currentProductImages || [];
+
             // Handle variant management
             const variantsRaw = variants;
             let variantsList = [];
@@ -862,6 +867,45 @@ router.patch('/update-seller-products/:id',
                 if (updateError) {
                     console.error('Error updating variant:', updateError);
                     return res.status(500).json({ message: 'Erreur lors de la mise à jour de la variante' });
+                }
+            }
+
+            // Sync product_variant_images for all active variants
+            // Map variant.images indices (positions in orderedProductImages) → real URLs
+            const allActiveVariants = [
+                ...existingVariants.map(v => ({ id: v.id, images: v.images || [] })),
+                ...insertedVariants.map((row, i) => ({ id: row.id, images: newVariants[i]?.images || [] }))
+            ];
+
+            for (const v of allActiveVariants) {
+                // Delete existing variant image assignments
+                await supabase
+                    .from('product_variant_images')
+                    .delete()
+                    .eq('product_variant_id', v.id);
+
+                if (!Array.isArray(v.images) || v.images.length === 0) continue;
+
+                const newVariantImageRecords = v.images
+                    .map((imgIdx, pos) => {
+                        const productImg = orderedProductImages[imgIdx];
+                        if (!productImg) return null;
+                        return {
+                            product_variant_id: v.id,
+                            image_url: productImg.image_url,
+                            position: pos,
+                            is_main: pos === 0
+                        };
+                    })
+                    .filter(Boolean);
+
+                if (newVariantImageRecords.length > 0) {
+                    const { error: varImgErr } = await supabase
+                        .from('product_variant_images')
+                        .insert(newVariantImageRecords);
+                    if (varImgErr) {
+                        console.error('Error syncing variant images:', varImgErr);
+                    }
                 }
             }
 
