@@ -90,6 +90,7 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
             maxAge: authData.session.expires_in * 1000,
             path: '/',
+            ...(process.env.NODE_ENV === 'production' && { domain: '.tishop.co' })
         })
 
         if (authData.session.refresh_token) {
@@ -99,6 +100,7 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
                 sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
                 maxAge: 7 * 24 * 3600000,
                 path: '/',
+                ...(process.env.NODE_ENV === 'production' && { domain: '.tishop.co' })
             });
         }
 
