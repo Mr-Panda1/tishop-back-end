@@ -12,6 +12,72 @@ const BUCKET_NAME = 'sellers_public';
 const MAX_IMAGES = 3;
 const IMAGE_WIDTH = 1200;
 const IMAGE_QUALITY = 80;
+const STORAGE_LIST_PAGE_SIZE = 100;
+
+async function collectStorageFilePaths(prefix) {
+    const filePaths = [];
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .storage
+            .from(BUCKET_NAME)
+            .list(prefix, {
+                limit: STORAGE_LIST_PAGE_SIZE,
+                offset,
+                sortBy: { column: 'name', order: 'asc' }
+            });
+
+        if (error) {
+            throw error;
+        }
+
+        if (!data || data.length === 0) {
+            break;
+        }
+
+        for (const entry of data) {
+            if (!entry?.name) {
+                continue;
+            }
+
+            const entryPath = `${prefix}/${entry.name}`;
+
+            if (entry.id === null) {
+                filePaths.push(...await collectStorageFilePaths(entryPath));
+                continue;
+            }
+
+            filePaths.push(entryPath);
+        }
+
+        if (data.length < STORAGE_LIST_PAGE_SIZE) {
+            break;
+        }
+
+        offset += data.length;
+    }
+
+    return filePaths;
+}
+
+async function clearProductStoragePrefix(shopId, productId) {
+    const prefix = `products/${shopId}/${productId}`;
+    const filePaths = await collectStorageFilePaths(prefix);
+
+    if (filePaths.length === 0) {
+        return;
+    }
+
+    const { error: removeError } = await supabase
+        .storage
+        .from(BUCKET_NAME)
+        .remove([...new Set(filePaths)]);
+
+    if (removeError) {
+        throw removeError;
+    }
+}
 
 // POST /sellers/shop/products
 router.post('/add-product', 
@@ -944,7 +1010,6 @@ router.patch('/update-seller-products/:id',
 
 
 // DELETE /sellers/shop/products
-// TODO: DELETE PRODUCT - complete the implementation later
 router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimiter, async (req, res) => {
     try {
         const user = req.user;
@@ -995,51 +1060,70 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
             });
         }
 
+        try {
+            await clearProductStoragePrefix(productData.shop.id, productId);
+        } catch (storageCleanupError) {
+            console.error('Error clearing product storage folder:', storageCleanupError);
+            return res.status(500).json({ message: 'Erreur lors de la suppression des images du produit' });
+        }
+
         // get and delete variant images
-        const { data: variantImages } = await supabase
+        const { data: variantImages, error: variantImagesFetchError } = await supabase
             .from('product_variant_images')
-            .select('id, image_url, variant:product_variants!inner(product_id)')
-            .eq('product_id', productId);
+            .select('id, variant:product_variants!inner(product_id)')
+            .eq('variant.product_id', productId);
+
+            if (variantImagesFetchError) {
+                console.error('Error fetching variant images:', variantImagesFetchError);
+                return res.status(500).json({ message: 'Erreur lors de la récupération des images de variante du produit' });
+            }
 
             if (variantImages && variantImages.length > 0) {
-                for (const img of variantImages) {
-                    const urlParts = img.image_url.split('/');
-                    if (urlParts.length >= 2) {
-                        const filePath = urlParts.slice(-4).join('/');
-                        await supabase.storage.from(BUCKET_NAME).remove([filePath]);
-                    }
-                }
-
                 const imgIds = variantImages.map(img => img.id);
-                await supabase
+                const { error: variantImagesDeleteError } = await supabase
                     .from('product_variant_images')
                     .delete()
                     .in('id', imgIds);
+
+                if (variantImagesDeleteError) {
+                    console.error('Error deleting variant image records:', variantImagesDeleteError);
+                    return res.status(500).json({ message: 'Erreur lors de la suppression des enregistrements d\'images de variante' });
+                }
             }
 
             // delete variants
-            await supabase.from('product_variants').delete().eq('product_id', productId);
+            const { error: variantsDeleteError } = await supabase
+                .from('product_variants')
+                .delete()
+                .eq('product_id', productId);
+
+            if (variantsDeleteError) {
+                console.error('Error deleting variants:', variantsDeleteError);
+                return res.status(500).json({ message: 'Erreur lors de la suppression des variantes du produit' });
+            }
 
             // get and delete product images
-            const { data: productImages } = await supabase
+            const { data: productImages, error: productImagesFetchError } = await supabase
                 .from('product_images')
                 .select('id, image_url')
                 .eq('product_id', productId);
 
-            if (productImages && productImages.length > 0) {
-                for (const img of productImages) {
-                    const urlParts = img.image_url.split('/');
-                    if (urlParts.length >= 2) {
-                        const filePath = urlParts.slice(-4).join('/');
-                        await supabase.storage.from(BUCKET_NAME).remove([filePath]);
-                    }
-                }
+            if (productImagesFetchError) {
+                console.error('Error fetching product images:', productImagesFetchError);
+                return res.status(500).json({ message: 'Erreur lors de la récupération des images du produit' });
+            }
 
+            if (productImages && productImages.length > 0) {
                 const imgIds = productImages.map(img => img.id);
-                await supabase
+                const { error: productImagesDeleteError } = await supabase
                     .from('product_images')
                     .delete()
                     .in('id', imgIds);
+
+                if (productImagesDeleteError) {
+                    console.error('Error deleting product image records:', productImagesDeleteError);
+                    return res.status(500).json({ message: 'Erreur lors de la suppression des enregistrements d\'images du produit' });
+                }
             }
 
             // delete product
