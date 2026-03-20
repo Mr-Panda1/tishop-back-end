@@ -3,6 +3,7 @@ const { supabase } = require('../../db/supabase');
 const router = express.Router();
 const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthMiddleware');
 const { decryptFile } = require('../../utils/encryption');
+const { sendKycApprovalEmail, sendKycRejectionEmail } = require('../../email/seller/kycEmails');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Get all by filter KYC requests
@@ -308,7 +309,7 @@ router.put('/admin/kyc/:id/approve',
                     updated_at: reviewedAt
                 })
                 .eq('id', approvedKyc.seller_id)
-                .select('id, is_verified, verification_status, updated_at')
+                .select('id, first_name, last_name, email, is_verified, verification_status, updated_at')
                 .single();
 
             if (sellerUpdateError || !updatedSeller) {
@@ -327,6 +328,14 @@ router.put('/admin/kyc/:id/approve',
                     code: 'seller_update_failed',
                     message: 'KYC approval failed while updating seller verification status.'
                 });
+            }
+
+            // Send approval notification email (non-blocking)
+            if (updatedSeller.email) {
+                const sellerName = [updatedSeller.first_name, updatedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
+                sendKycApprovalEmail(updatedSeller.email, sellerName).catch((err) =>
+                    console.error('Failed to send KYC approval email:', err.message)
+                );
             }
 
             return res.status(200).json({
@@ -428,11 +437,19 @@ router.put('/admin/kyc/:id/reject',
                     updated_at: reviewedAt
                 })
                 .eq('id', rejectedKyc.seller_id)
-                .select('id, is_verified, verification_status, updated_at')
+                .select('id, first_name, last_name, email, is_verified, verification_status, updated_at')
                 .single();
 
             if (sellerUpdateError || !updatedSeller) {
                 console.error('Error updating seller verification status:', sellerUpdateError);
+            }
+
+            // Send rejection notification email (non-blocking)
+            if (updatedSeller?.email) {
+                const sellerName = [updatedSeller.first_name, updatedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
+                sendKycRejectionEmail(updatedSeller.email, sellerName, rejection_reason.trim()).catch((err) =>
+                    console.error('Failed to send KYC rejection email:', err.message)
+                );
             }
 
             return res.status(200).json({
