@@ -351,7 +351,7 @@ router.put('/admin/kyc/:id/approve',
 
             const reviewedAt = new Date().toISOString();
 
-            const { data: approvedKyc, error: approveKycError } = await supabase
+            const { data: approvedKyc, error: approveKycError } = await supabaseAdmin
                 .from('kyc_documents')
                 .update({
                     status: 'approved',
@@ -371,7 +371,7 @@ router.put('/admin/kyc/:id/approve',
                 });
             }
 
-            const { data: updatedSeller, error: sellerUpdateError } = await supabase
+            const { data: updatedSeller, error: sellerUpdateError } = await supabaseAdmin
                 .from('sellers')
                 .update({
                     is_verified: true,
@@ -385,7 +385,7 @@ router.put('/admin/kyc/:id/approve',
             if (sellerUpdateError || !updatedSeller) {
                 console.error('Error updating seller verification status:', sellerUpdateError);
 
-                await supabase
+                await supabaseAdmin
                     .from('kyc_documents')
                     .update({
                         status: 'pending',
@@ -479,7 +479,7 @@ router.put('/admin/kyc/:id/reject',
 
             const reviewedAt = new Date().toISOString();
 
-            const { data: rejectedKyc, error: rejectKycError } = await supabase
+            const { data: rejectedKyc, error: rejectKycError } = await supabaseAdmin
                 .from('kyc_documents')
                 .update({
                     status: 'rejected',
@@ -499,7 +499,7 @@ router.put('/admin/kyc/:id/reject',
                 });
             }
 
-            const { data: updatedSeller, error: sellerUpdateError } = await supabase
+            const { data: updatedSeller, error: sellerUpdateError } = await supabaseAdmin
                 .from('sellers')
                 .update({
                     is_verified: false,
