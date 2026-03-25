@@ -1,16 +1,25 @@
 const env = require('../db/env');
 const nodemailer = require("nodemailer");
+const isSecurePort = Number(env.BrevoPort) === 465;
+
 // Initialize Brevo transporter
 const transporter = nodemailer.createTransport({
   host: env.host,
   port: env.BrevoPort,
-  secure: false,
+  secure: isSecurePort,
+  requireTLS: !isSecurePort,
   auth: {
     user: env.user,
     pass: env.pass,
   },
-  connectionTimeout: 10000, // 10 seconds
-  socketTimeout: 10000, // 10 seconds
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
+  dnsTimeout: 30000,
+  tls: {
+    minVersion: 'TLSv1.2',
+    servername: env.host,
+  },
 });
 
 const DEFAULT_FROM_EMAIL = env.fromEmail;
@@ -27,6 +36,8 @@ async function verifyConnection() {
   } catch (error) {
     console.error("✗ Brevo connection failed:", error.message);
     console.error("Check your environment variables:");
+    console.error("- BREVO_SMTP_HOST:", env.host || "NOT SET");
+    console.error("- BREVO_SMTP_PORT:", env.BrevoPort || "NOT SET");
     console.error("- BREVO_EMAIL_USER:", env.user ? "set" : "NOT SET");
     console.error("- BREVO_EMAIL_PASS:", env.pass ? "set" : "NOT SET");
     return false;
