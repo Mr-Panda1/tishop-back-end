@@ -1,10 +1,55 @@
 const express = require('express');
-const { supabase } = require('../../db/supabase');
+const { supabase, supabaseAdmin } = require('../../db/supabase');
 const router = express.Router();
 const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthMiddleware');
 const { decryptFile } = require('../../utils/encryption');
 const { sendKycApprovalEmail, sendKycRejectionEmail } = require('../../email/seller/kycEmails');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const KYC_BUCKET = 'kyc_documents';
+
+const buildStoragePathCandidates = (value) => {
+    if (!value) return [];
+
+    const raw = String(value).trim();
+    if (!raw) return [];
+
+    const candidates = new Set();
+    const add = (v) => {
+        const s = String(v || '').trim();
+        if (s) candidates.add(s);
+    };
+
+    add(raw);
+    add(raw.replace(/^\/+/, ''));
+    add(raw.replace(/^kyc_documents\//, ''));
+
+    try {
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+            const url = new URL(raw);
+            const pathname = decodeURIComponent(url.pathname || '');
+
+            add(pathname.replace(/^\/+/, ''));
+
+            const objectPublicPrefix = `/storage/v1/object/public/${KYC_BUCKET}/`;
+            const objectSignPrefix = `/storage/v1/object/sign/${KYC_BUCKET}/`;
+
+            if (pathname.includes(objectPublicPrefix)) {
+                add(pathname.split(objectPublicPrefix)[1]);
+            }
+
+            if (pathname.includes(objectSignPrefix)) {
+                add(pathname.split(objectSignPrefix)[1]);
+            }
+        }
+    } catch {
+        // Non-URL values are valid storage paths; ignore parsing errors.
+    }
+
+    return Array.from(candidates)
+        .map((item) => item.replace(/^\/+/, ''))
+        .map((item) => item.replace(/^kyc_documents\//, ''))
+        .filter(Boolean);
+};
 
 // Get all by filter KYC requests
 // GET /api/admin/kyc?status=pending&limit=20&offset=0
@@ -94,16 +139,25 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
         const createSignedUrl = async (filePath) => {
             if (!filePath) return null;
 
-            const { data, error } = await supabase.storage
-                .from('kyc_documents')
-                .createSignedUrl(filePath, 60 * 30);
+            const candidates = buildStoragePathCandidates(filePath);
 
-            if (error) {
-                console.error('Error creating signed URL:', { filePath, error });
-                return null;
+            for (const candidate of candidates) {
+                const { data, error } = await supabaseAdmin.storage
+                    .from(KYC_BUCKET)
+                    .createSignedUrl(candidate, 60 * 30);
+
+                if (!error && data?.signedUrl) {
+                    return data.signedUrl;
+                }
             }
 
-            return data?.signedUrl || null;
+            console.error('Error creating signed URL:', {
+                filePath,
+                normalizedCandidates: candidates,
+                error: 'Object not found for all normalized candidates'
+            });
+
+            return null;
         };
 
         // Restructure to use original property names
@@ -211,13 +265,29 @@ router.get('/admin/kyc/files/:kycDocId/:fileType',
                 return res.status(404).json({ message: 'File not found' });
             }
 
-            // Download encrypted file from Supabase storage
-            const { data: encryptedData, error: downloadError } = await supabase.storage
-                .from('kyc_documents')
-                .download(filePath);
+            const candidates = buildStoragePathCandidates(filePath);
+            let encryptedData = null;
+            let downloadError = null;
 
-            if (downloadError) {
-                console.error('Download error:', downloadError);
+            for (const candidate of candidates) {
+                const result = await supabaseAdmin.storage
+                    .from(KYC_BUCKET)
+                    .download(candidate);
+
+                if (!result.error && result.data) {
+                    encryptedData = result.data;
+                    break;
+                }
+
+                downloadError = result.error;
+            }
+
+            if (!encryptedData) {
+                console.error('Download error:', {
+                    filePath,
+                    normalizedCandidates: candidates,
+                    error: downloadError
+                });
                 return res.status(500).json({ message: 'Error downloading file' });
             }
 
