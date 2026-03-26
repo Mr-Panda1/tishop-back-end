@@ -397,7 +397,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
             const { data: locationRows, error: locationError } = await supabase
                 .from('shop_locations')
                 .select('shop_id')
-                .eq('commune_id', commune_id);
+                .ilike('commune_id', commune_id.trim());
 
             if (locationError) throw locationError;
 
