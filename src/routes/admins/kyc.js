@@ -7,6 +7,86 @@ const { sendKycApprovalEmail, sendKycRejectionEmail } = require('../../email/sel
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const KYC_BUCKET = 'kyc_documents';
 
+const getKycFilePaths = (kycFileRow) => {
+    if (!kycFileRow) return [];
+
+    return [
+        ...buildStoragePathCandidates(kycFileRow.id_front_url),
+        ...buildStoragePathCandidates(kycFileRow.id_back_url),
+        ...buildStoragePathCandidates(kycFileRow.selfie_url)
+    ];
+};
+
+const collectStoragePathsFromFolder = async (folderPrefix) => {
+    if (!folderPrefix) return [];
+
+    const normalizedPrefix = String(folderPrefix).replace(/^\/+/, '').trim();
+    if (!normalizedPrefix) return [];
+
+    const collected = [];
+    let offset = 0;
+    const limit = 100;
+
+    while (true) {
+        const { data, error } = await supabaseAdmin.storage
+            .from(KYC_BUCKET)
+            .list(normalizedPrefix, {
+                limit,
+                offset,
+                sortBy: { column: 'name', order: 'asc' }
+            });
+
+        if (error) {
+            console.error('Error listing KYC storage folder:', {
+                folderPrefix: normalizedPrefix,
+                error
+            });
+            break;
+        }
+
+        if (!Array.isArray(data) || data.length === 0) {
+            break;
+        }
+
+        data.forEach((item) => {
+            if (item?.name) {
+                collected.push(`${normalizedPrefix}/${item.name}`);
+            }
+        });
+
+        if (data.length < limit) {
+            break;
+        }
+
+        offset += limit;
+    }
+
+    return collected;
+};
+
+const deleteKycStorageArtifacts = async ({ sellerId, kycDocumentId, kycFiles = [] }) => {
+    const folderPrefix = `${sellerId}/${kycDocumentId}`;
+    const directPaths = kycFiles.flatMap(getKycFilePaths);
+    const folderPaths = await collectStoragePathsFromFolder(folderPrefix);
+    const pathsToDelete = Array.from(
+        new Set([...directPaths, ...folderPaths].map((path) => String(path).replace(/^\/+/, '')))
+    ).filter(Boolean);
+
+    if (pathsToDelete.length === 0) {
+        return { deletedCount: 0 };
+    }
+
+    const { error } = await supabaseAdmin.storage
+        .from(KYC_BUCKET)
+        .remove(pathsToDelete);
+
+    if (error) {
+        throw new Error(`Failed to delete KYC files from storage: ${error.message || 'unknown error'}`);
+    }
+
+    return { deletedCount: pathsToDelete.length };
+};
+
 const buildStoragePathCandidates = (value) => {
     if (!value) return [];
 
@@ -479,23 +559,64 @@ router.put('/admin/kyc/:id/reject',
 
             const reviewedAt = new Date().toISOString();
 
-            const { data: rejectedKyc, error: rejectKycError } = await supabaseAdmin
-                .from('kyc_documents')
-                .update({
-                    status: 'rejected',
-                    reviewed_at: reviewedAt,
-                    rejection_reason: rejection_reason.trim()
-                })
-                .eq('id', id)
-                .select('id, seller_id, status, submitted_at, reviewed_at, rejection_reason')
-                .single();
+            const { data: kycFileRows, error: kycFilesFetchError } = await supabaseAdmin
+                .from('kyc_files')
+                .select('id, id_front_url, id_back_url, selfie_url')
+                .eq('kyc_document_id', id);
 
-            if (rejectKycError || !rejectedKyc) {
-                console.error('Error rejecting KYC document:', rejectKycError);
+            if (kycFilesFetchError) {
+                console.error('Error fetching KYC files before rejection cleanup:', kycFilesFetchError);
                 return res.status(500).json({
                     success: false,
-                    code: 'reject_failed',
-                    message: 'Failed to reject KYC document.'
+                    code: 'kyc_files_fetch_failed',
+                    message: 'Failed to fetch KYC files for cleanup.'
+                });
+            }
+
+            let deletedStorageCount = 0;
+            try {
+                const cleanupResult = await deleteKycStorageArtifacts({
+                    sellerId: kycRecord.seller_id,
+                    kycDocumentId: id,
+                    kycFiles: kycFileRows || []
+                });
+                deletedStorageCount = cleanupResult.deletedCount;
+            } catch (cleanupError) {
+                console.error('Error deleting KYC files from storage:', cleanupError.message);
+                return res.status(500).json({
+                    success: false,
+                    code: 'storage_cleanup_failed',
+                    message: 'Failed to delete KYC files from bucket during rejection.'
+                });
+            }
+
+            const { error: deleteKycFilesError } = await supabaseAdmin
+                .from('kyc_files')
+                .delete()
+                .eq('kyc_document_id', id);
+
+            if (deleteKycFilesError) {
+                console.error('Error deleting KYC file records:', deleteKycFilesError);
+                return res.status(500).json({
+                    success: false,
+                    code: 'kyc_files_delete_failed',
+                    message: 'Failed to delete KYC file records.'
+                });
+            }
+
+            const { data: deletedKyc, error: deleteKycDocError } = await supabaseAdmin
+                .from('kyc_documents')
+                .delete()
+                .eq('id', id)
+                .select('id, seller_id')
+                .single();
+
+            if (deleteKycDocError || !deletedKyc) {
+                console.error('Error deleting KYC document record:', deleteKycDocError);
+                return res.status(500).json({
+                    success: false,
+                    code: 'kyc_document_delete_failed',
+                    message: 'Failed to delete KYC document record.'
                 });
             }
 
@@ -506,7 +627,7 @@ router.put('/admin/kyc/:id/reject',
                     verification_status: 'rejected',
                     updated_at: reviewedAt
                 })
-                .eq('id', rejectedKyc.seller_id)
+                .eq('id', deletedKyc.seller_id)
                 .select('id, first_name, last_name, email, is_verified, verification_status, updated_at')
                 .single();
 
@@ -524,9 +645,11 @@ router.put('/admin/kyc/:id/reject',
 
             return res.status(200).json({
                 success: true,
-                message: 'KYC rejected successfully.',
-                kyc: rejectedKyc,
+                message: 'KYC rejected and deleted successfully.',
+                deleted_kyc_document_id: deletedKyc.id,
+                deleted_storage_objects_count: deletedStorageCount,
                 seller: updatedSeller,
+                rejection_reason: rejection_reason.trim(),
                 reviewed_by: {
                     id: req.admin.id,
                     role: req.admin.role

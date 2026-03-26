@@ -25,6 +25,7 @@ const env = {
     user: process.env.BREVO_EMAIL_USER,
     pass: process.env.BREVO_EMAIL_PASS,
     emailPass: process.env.BREVO_EMAIL_PASS,
+    brevoApiKey: process.env.BREVO_API_KEY,
     fromEmail: process.env.BREVO_FROM_EMAIL,
     fromName:  "TiShop",
 }

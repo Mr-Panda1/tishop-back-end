@@ -1,54 +1,34 @@
 const env = require('../db/env');
-const nodemailer = require("nodemailer");
-const isSecurePort = Number(env.BrevoPort) === 465;
-
-// Initialize Brevo transporter
-const transporter = nodemailer.createTransport({
-  host: env.host,
-  port: env.BrevoPort,
-  secure: isSecurePort,
-  requireTLS: !isSecurePort,
-  auth: {
-    user: env.user,
-    pass: env.pass,
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-  dnsTimeout: 30000,
-  tls: {
-    minVersion: 'TLSv1.2',
-    servername: env.host,
-  },
-});
 
 const DEFAULT_FROM_EMAIL = env.fromEmail;
 const DEFAULT_FROM_NAME = env.fromName;
+const BREVO_API_KEY = env.brevoApiKey; // API key from BREVO_API_KEY env var
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 /**
- * Verify Brevo connection
+ * Verify Brevo API connection
  */
 async function verifyConnection() {
   try {
-    await transporter.verify();
-    console.log("✓ Brevo SMTP connection verified successfully");
+    if (!BREVO_API_KEY) {
+      throw new Error('BREVO_API_KEY environment variable is not set');
+    }
+    console.log("✓ Brevo HTTP API configured successfully");
     return true;
   } catch (error) {
-    console.error("✗ Brevo connection failed:", error.message);
+    console.error("✗ Brevo API configuration failed:", error.message);
     console.error("Check your environment variables:");
-    console.error("- BREVO_SMTP_HOST:", env.host || "NOT SET");
-    console.error("- BREVO_SMTP_PORT:", env.BrevoPort || "NOT SET");
-    console.error("- BREVO_EMAIL_USER:", env.user ? "set" : "NOT SET");
-    console.error("- BREVO_EMAIL_PASS:", env.pass ? "set" : "NOT SET");
+    console.error("- BREVO_API_KEY:", BREVO_API_KEY ? "set" : "NOT SET");
+    console.error("- BREVO_FROM_EMAIL:", env.fromEmail || "NOT SET");
     return false;
   }
 }
 
-// Verify connection on startup
+// Verify on startup
 verifyConnection();
 
 /**
- * Generic email sending function
+ * Generic email sending function using Brevo HTTP API
  * @param {string} toEmail - Recipient email address
  * @param {string} subject - Email subject
  * @param {string} htmlContent - HTML email content
@@ -56,18 +36,40 @@ verifyConnection();
  */
 async function sendEmail(toEmail, subject, htmlContent, fromEmail = DEFAULT_FROM_EMAIL) {
   try {
-    const mailOptions = {
-      from: `"${DEFAULT_FROM_NAME}" <${fromEmail}>`,
-      to: toEmail,
+    const payload = {
+      to: [
+        {
+          email: toEmail,
+        }
+      ],
+      sender: {
+        email: fromEmail,
+        name: DEFAULT_FROM_NAME,
+      },
       subject,
-      html: htmlContent,
+      htmlContent,
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log("Email sent:", info.messageId);
-    return info;
+    const response = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      const errorMessage = errorData.message || `HTTP ${response.status}`;
+      throw new Error(`Brevo API error: ${errorMessage}`);
+    }
+
+    const result = await response.json();
+    console.log("✓ Email sent via Brevo API:", result.messageId);
+    return result;
   } catch (error) {
-    console.error("Error sending email:", error);
+    console.error("Error sending email via Brevo API:", error.message);
     throw error;
   }
 }
@@ -75,5 +77,4 @@ async function sendEmail(toEmail, subject, htmlContent, fromEmail = DEFAULT_FROM
 module.exports = {
   sendEmail,
   verifyConnection,
-  transporter,
 };
