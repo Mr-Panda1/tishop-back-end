@@ -5,6 +5,7 @@ const { authLimiter } = require('../../../middlewares/limit');
 const { sendWelcomeEmail } = require('../../../email/seller/welcomeEmail');
 const crypto = require('crypto');
 const { validatePassword } = require('../../../utils/passwordValidator');
+const authenticateUser = require('../../../middlewares/authMiddleware');
 
 // Seller login route 
 // POST /api/seller/login
@@ -302,6 +303,76 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         });
     }
 })
+
+
+// Update seller profile names route
+// PATCH /api/seller/profile
+router.patch('/seller/profile', authenticateUser, async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        const first_name = String(req.body?.first_name || '').trim();
+        const last_name = String(req.body?.last_name || '').trim();
+
+        if (!userId) {
+            return res.status(401).json({ message: 'Unauthorized: Invalid or expired token.' });
+        }
+
+        if (!first_name || !last_name) {
+            return res.status(400).json({ message: 'Le prénom et le nom sont requis.' });
+        }
+
+        if (first_name.length > 100 || last_name.length > 100) {
+            return res.status(400).json({ message: 'Le prénom ou le nom est trop long.' });
+        }
+
+        const { error: userUpdateError } = await supabase
+            .from('users')
+            .update({
+                first_name,
+                last_name,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', userId);
+
+        if (userUpdateError) {
+            console.error('Error updating users profile:', userUpdateError);
+            return res.status(500).json({ message: 'Erreur lors de la mise à jour du profil.' });
+        }
+
+        const { error: sellerUpdateError } = await supabase
+            .from('sellers')
+            .update({
+                first_name,
+                last_name,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', userId);
+
+        if (sellerUpdateError) {
+            console.error('Error updating sellers profile:', sellerUpdateError);
+            return res.status(500).json({ message: 'Erreur lors de la synchronisation du profil vendeur.' });
+        }
+
+        const { data: updatedUser, error: profileError } = await supabase
+            .from('users')
+            .select('id, email, first_name, last_name, role')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (profileError) {
+            console.error('Error fetching updated user profile:', profileError);
+            return res.status(500).json({ message: 'Profil mis à jour, mais impossible de récupérer les données.' });
+        }
+
+        return res.status(200).json({
+            message: 'Profil mis à jour avec succès.',
+            user: updatedUser,
+        });
+    } catch (error) {
+        console.error('Profile update request error:', error);
+        return res.status(500).json({ message: 'Erreur serveur interne.' });
+    }
+});
 
 
 // Seller logout route
