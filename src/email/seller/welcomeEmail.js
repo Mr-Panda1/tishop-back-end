@@ -33,7 +33,7 @@ const welcomeEmailTemplate = `<!DOCTYPE html>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <a href="https://seller.tishop.co/login" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
+                    <a href="https://seller.tishop.co/auth/login" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">
                       Accéder à mon tableau de bord
                     </a>
                   </td>
