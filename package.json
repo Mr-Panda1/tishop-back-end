@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "seed:demo-products": "node src/scripts/tempSeedDemoProducts.js",
+    "cleanup:demo-products": "node src/scripts/tempCleanupDemoProducts.js"
   },
   "keywords": [],
   "author": "",
