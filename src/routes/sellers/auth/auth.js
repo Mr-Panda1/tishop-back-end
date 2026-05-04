@@ -8,7 +8,7 @@ const { validatePassword } = require('../../../utils/passwordValidator');
 const authenticateUser = require('../../../middlewares/authMiddleware');
 
 // Seller login route 
-// POST /api/seller/login
+// POST /api/seller/login 
 router.post('/seller/login', authLimiter, async (req, res) => {
     try {
         // Safely handle cases where req.body is undefined
@@ -95,6 +95,7 @@ const generateRandomName = (length = 8) => {
         .map((b) => charset[b % charset.length])
         .join('');
 }
+
 
 // Seller sign up route
 // POST /api/seller/signup
@@ -281,7 +282,7 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         console.log('Step 9: Sending welcome email...');
         try {
             await sendWelcomeEmail(email, `${first_name} ${last_name}`);
-            console.log("Welcome email sent to:", email);
+            console.log("Welcome email sent");
         } catch (emailError) {
             console.log("Warning: Failed to send welcome email:", emailError.message);
         }

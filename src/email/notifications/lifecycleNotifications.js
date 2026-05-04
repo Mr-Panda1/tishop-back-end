@@ -461,6 +461,333 @@ async function sendAdminPayoutRequestedEmail({ toEmail, sellerName, sellerEmail,
   return sendEmail(toEmail, `Admin: demande de retrait ${payoutId || ''}`.trim(), html);
 }
 
+// --- Cancellation emails ---
+
+// Template 1: Customer cancelled → email to the customer
+async function sendCustomerCancelledToCustomer({ toEmail, customerName, orderNumber, orderId, cancelDate, orderTotal }) {
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f8f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f8fa;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px;text-align:center;">
+              <img src="https://tishop.co/logo.png" alt="TiShop" width="120" style="display:inline-block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <h1 style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1d24;text-align:center;">Commande annulée</h1>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5c6370;text-align:center;">Bonjour ${escapeHtml(customerName)}, votre commande a bien été annulée à votre demande.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                <tr>
+                  <td style="padding:14px 16px;background-color:#f8f8fa;border-radius:6px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Commande</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;font-weight:600;text-align:right;">${escapeHtml(orderNumber)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Date d'annulation</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(cancelDate)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Statut</td>
+                        <td style="padding:4px 0;font-size:13px;text-align:right;"><span style="display:inline-block;padding:2px 10px;background-color:#fef2f2;color:#dc2626;border-radius:12px;font-weight:600;font-size:12px;">Annulée</span></td>
+                      </tr>
+                      <tr><td colspan="2" style="padding:8px 0 0;border-top:1px solid #ebebef;"></td></tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;">Total</td>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;text-align:right;">${formatAmount(orderTotal)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#5c6370;text-align:center;">Si un paiement a déjà été effectué, le vendeur vous contactera concernant le remboursement selon sa politique. Aucun produit ne vous sera livré.</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="https://tishop.co/shop/orders/order-detail/${escapeHtml(String(orderId))}" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">Voir la commande</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:24px 0 0;font-size:13px;line-height:1.5;color:#8b919d;text-align:center;">Continuez votre shopping sur TiShop.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px;border-top:1px solid #ebebef;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#8b919d;">© 2026 TiShop · La marketplace haïtienne</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return sendEmail(toEmail, `Votre commande ${orderNumber} a été annulée`, html);
+}
+
+// Template 2: Customer cancelled → email to the seller
+async function sendCustomerCancelledToSeller({ toEmail, sellerName, customerName, orderNumber, cancelDate, orderTotal }) {
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f8f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f8fa;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px;text-align:center;">
+              <img src="https://tishop.co/logo.png" alt="TiShop" width="120" style="display:inline-block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <h1 style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1d24;text-align:center;">Commande annulée par le client</h1>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5c6370;text-align:center;">Bonjour ${escapeHtml(sellerName)}, le client <strong style="color:#1a1d24;">${escapeHtml(customerName)}</strong> vient d'annuler sa commande. Vous n'avez pas besoin de la préparer ni de l'expédier.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                <tr>
+                  <td style="padding:14px 16px;background-color:#f8f8fa;border-radius:6px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Commande</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;font-weight:600;text-align:right;">#${escapeHtml(orderNumber)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Client</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(customerName)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Date d'annulation</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(cancelDate)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Statut</td>
+                        <td style="padding:4px 0;font-size:13px;text-align:right;"><span style="display:inline-block;padding:2px 10px;background-color:#fef2f2;color:#dc2626;border-radius:12px;font-weight:600;font-size:12px;">Annulée</span></td>
+                      </tr>
+                      <tr><td colspan="2" style="padding:8px 0 0;border-top:1px solid #ebebef;"></td></tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;">Total</td>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;text-align:right;">${formatAmount(orderTotal)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#5c6370;text-align:center;">Si un paiement a été reçu, veuillez procéder au remboursement selon votre politique.</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="https://seller.tishop.co/dashboard/orders" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">Voir la commande</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px;border-top:1px solid #ebebef;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#8b919d;">© 2026 TiShop · La plateforme de vente en ligne pour les vendeurs haïtiens</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return sendEmail(toEmail, `Commande ${orderNumber} annulée par le client`, html);
+}
+
+// Template 3: Seller cancelled → email to the customer
+async function sendSellerCancelledToCustomer({ toEmail, customerName, sellerName, orderNumber, orderId, cancelDate, orderTotal, cancelReason }) {
+  const reasonBlock = cancelReason
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+        <tr>
+          <td style="padding:12px 16px;background-color:#fff7ed;border-radius:6px;">
+            <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#9a3412;">Raison communiquée</p>
+            <p style="margin:0;font-size:13px;color:#5c6370;line-height:1.5;">${escapeHtml(cancelReason)}</p>
+          </td>
+        </tr>
+      </table>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f8f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f8fa;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px;text-align:center;">
+              <img src="https://tishop.co/logo.png" alt="TiShop" width="120" style="display:inline-block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <h1 style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1d24;text-align:center;">Commande annulée par le vendeur</h1>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5c6370;text-align:center;">Bonjour ${escapeHtml(customerName)}, nous sommes désolés de vous informer que <strong style="color:#1a1d24;">${escapeHtml(sellerName)}</strong> a annulé votre commande.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                <tr>
+                  <td style="padding:14px 16px;background-color:#f8f8fa;border-radius:6px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Commande</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;font-weight:600;text-align:right;">${escapeHtml(orderNumber)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Vendeur</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(sellerName)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Date d'annulation</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(cancelDate)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Statut</td>
+                        <td style="padding:4px 0;font-size:13px;text-align:right;"><span style="display:inline-block;padding:2px 10px;background-color:#fef2f2;color:#dc2626;border-radius:12px;font-weight:600;font-size:12px;">Annulée</span></td>
+                      </tr>
+                      <tr><td colspan="2" style="padding:8px 0 0;border-top:1px solid #ebebef;"></td></tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;">Total</td>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;text-align:right;">${formatAmount(orderTotal)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              ${reasonBlock}
+              <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#5c6370;text-align:center;">Si vous avez déjà payé, le vendeur procédera au remboursement selon sa politique. Pour toute question, contactez directement la boutique ou notre support.</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="https://tishop.co/shop/orders/order-detail/${escapeHtml(String(orderId))}" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">Voir la commande</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px;border-top:1px solid #ebebef;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#8b919d;">© 2026 TiShop · La marketplace haïtienne</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return sendEmail(toEmail, `Votre commande ${orderNumber} a été annulée par le vendeur`, html);
+}
+
+// Template 4: Seller cancelled → confirmation email to the seller
+async function sendSellerCancelledToSeller({ toEmail, sellerName, customerName, orderNumber, cancelDate, orderTotal, cancelReason }) {
+  const reasonBlock = cancelReason
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+        <tr>
+          <td style="padding:12px 16px;background-color:#fff7ed;border-radius:6px;">
+            <p style="margin:0 0 4px;font-size:13px;font-weight:600;color:#9a3412;">Raison enregistrée</p>
+            <p style="margin:0;font-size:13px;color:#5c6370;line-height:1.5;">${escapeHtml(cancelReason)}</p>
+          </td>
+        </tr>
+      </table>`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background-color:#f8f8fa;font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f8fa;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px;text-align:center;">
+              <img src="https://tishop.co/logo.png" alt="TiShop" width="120" style="display:inline-block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 32px 32px;">
+              <h1 style="margin:0 0 8px;font-size:22px;font-weight:600;color:#1a1d24;text-align:center;">Annulation confirmée</h1>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#5c6370;text-align:center;">Bonjour ${escapeHtml(sellerName)}, vous avez annulé la commande de <strong style="color:#1a1d24;">${escapeHtml(customerName)}</strong>. Le client a été notifié par email.</p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                <tr>
+                  <td style="padding:14px 16px;background-color:#f8f8fa;border-radius:6px;">
+                    <table width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Commande</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;font-weight:600;text-align:right;">#${escapeHtml(orderNumber)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Client</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(customerName)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Date d'annulation</td>
+                        <td style="padding:4px 0;font-size:13px;color:#1a1d24;text-align:right;">${escapeHtml(cancelDate)}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:13px;color:#8b919d;">Statut</td>
+                        <td style="padding:4px 0;font-size:13px;text-align:right;"><span style="display:inline-block;padding:2px 10px;background-color:#fef2f2;color:#dc2626;border-radius:12px;font-weight:600;font-size:12px;">Annulée</span></td>
+                      </tr>
+                      <tr><td colspan="2" style="padding:8px 0 0;border-top:1px solid #ebebef;"></td></tr>
+                      <tr>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;">Total</td>
+                        <td style="padding:4px 0;font-size:14px;color:#1a1d24;font-weight:600;text-align:right;">${formatAmount(orderTotal)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              ${reasonBlock}
+              <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#5c6370;text-align:center;">Si un paiement a été reçu, n'oubliez pas de procéder au remboursement du client selon votre politique.</p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <a href="https://seller.tishop.co/dashboard/orders" style="display:inline-block;padding:14px 32px;background-color:#7c3aed;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">Voir mes commandes</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 32px;border-top:1px solid #ebebef;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#8b919d;">© 2026 TiShop · La plateforme de vente en ligne pour les vendeurs haïtiens</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  return sendEmail(toEmail, `Commande ${orderNumber} — Annulation confirmée`, html);
+}
+
 module.exports = {
   sendCustomerOrderPlacedEmail,
   sendSellerNewOrderEmail,
@@ -470,5 +797,9 @@ module.exports = {
   sendCustomerOrderStatusEmail,
   sendSellerPayoutRequestedEmail,
   sendAdminPayoutRequestedEmail,
+  sendCustomerCancelledToCustomer,
+  sendCustomerCancelledToSeller,
+  sendSellerCancelledToCustomer,
+  sendSellerCancelledToSeller,
   statusLabel
 };

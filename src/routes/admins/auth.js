@@ -22,8 +22,6 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
             return res.status(400).json({ message: 'Email, password and admin code are required.' });
         }
 
-        console.log('📍 Looking up admin with email:', email);
-
         // Check if admin exist in admins table FIRST (not users table)
         const { data: adminData, error: adminDataError } = await supabase
         .from('admins')
@@ -37,11 +35,8 @@ router.post('/admin/login', adminLoginLimiter, async (req, res) => {
         }
 
         if (!adminData) {
-            console.log('❌ Admin not found for email:', email);
             return res.status(401).json({ message: 'Invalid email, code or password' });
         }
-
-        console.log('📍 Admin found:', { email: adminData.email, is_active: adminData.is_active });
 
         // Check if admin is active
         if (!adminData.is_active) {

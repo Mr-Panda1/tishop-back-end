@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../../db/supabase');
+const { supabase, supabaseAdmin } = require('../../db/supabase');
 
 // GET /api/shop/:shopId/payment-methods
 // Public endpoint — returns payment methods configured by a shop's seller
@@ -76,6 +76,31 @@ router.get('/:shopId/pickup-points', async (req, res) => {
         return res.json({ success: true, pickup_points: data || [] });
     } catch (error) {
         console.error('Shop pickup points error:', error);
+        return res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+// GET /api/shop/:shopId/policies
+// Public endpoint — returns published store rules for a shop.
+router.get('/:shopId/policies', async (req, res) => {
+    const { shopId } = req.params;
+
+    try {
+        const { data: policy, error } = await supabaseAdmin
+            .from('seller_store_policies')
+            .select('id, shop_id, preset, cancellation_window_hours, delivery_min_days, delivery_max_days, pickup_enabled, pickup_instructions, damaged_claim_window_days, support_contact_method, support_contact_value, is_published, updated_at')
+            .eq('shop_id', shopId)
+            .eq('is_published', true)
+            .maybeSingle();
+
+        if (error) {
+            console.error('Error fetching shop policies:', error);
+            return res.status(500).json({ success: false, error: 'Failed to fetch shop policies' });
+        }
+
+        return res.status(200).json({ success: true, policy: policy || null });
+    } catch (error) {
+        console.error('Shop policies error:', error);
         return res.status(500).json({ success: false, error: 'Internal server error' });
     }
 });

@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const authenticateUser = require('../../middlewares/authMiddleware');
-const { supabase } = require('../../db/supabase');
+const { supabase, supabaseAdmin } = require('../../db/supabase');
 const { sellerStoreLimiter } = require('../../middlewares/limit');
-const { sendCustomerOrderStatusEmail, sendSellerOrderPaidEmail, sendCustomerOrderPaidEmail } = require('../../email/notifications/lifecycleNotifications');
+const { sendCustomerOrderStatusEmail, sendSellerOrderPaidEmail, sendCustomerOrderPaidEmail, sendSellerCancelledToCustomer, sendSellerCancelledToSeller } = require('../../email/notifications/lifecycleNotifications');
 const { decryptFile } = require('../../utils/encryption');
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
@@ -627,7 +627,7 @@ router.put('/:sellerOrderId/verify-payment', authenticateUser, sellerStoreLimite
                             sellerTotal: so.total_amount
                         });
                     } catch (emailError) {
-                        console.error(`Error sending paid email to seller ${s.email}:`, emailError.message);
+                        console.error('Error sending paid email to seller:', emailError.message);
                     }
                 }));
             }
@@ -841,10 +841,10 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
     try {
         const user = req.user;
         const { sellerOrderId } = req.params;
-        const { status } = req.body;
+        const { status, cancelReason } = req.body;
 
-        if (!status || !['confirmed', 'shipped', 'delivered'].includes(status)) {
-            return res.status(400).json({ message: 'Statut invalide. Doit être "confirmé", "expédié" ou "livré"' });
+        if (!status || !['confirmed', 'shipped', 'delivered', 'cancelled'].includes(status)) {
+            return res.status(400).json({ message: 'Statut invalide. Doit être "confirmé", "expédié", "livré" ou "annulé"' });
         }
 
         const { data: seller, error: sellerError } = await supabase
@@ -864,7 +864,7 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
 
         const { data: sellerOrder, error: sellerOrderError } = await supabase
             .from('seller_orders')
-            .select('id, seller_id, status, order_id')
+            .select('id, seller_id, shop_id, status, order_id, created_at')
             .eq('id', sellerOrderId)
             .eq('seller_id', seller.id)
             .maybeSingle();
@@ -876,6 +876,37 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
 
         if (!sellerOrder) {
             return res.status(404).json({ message: 'Seller order not found' });
+        }
+
+        if (status === 'cancelled') {
+            const { data: storePolicy, error: storePolicyError } = await supabaseAdmin
+                .from('seller_store_policies')
+                .select('id, cancellation_window_hours, is_published')
+                .eq('seller_id', seller.id)
+                .eq('shop_id', sellerOrder.shop_id)
+                .eq('is_published', true)
+                .maybeSingle();
+
+            if (storePolicyError) {
+                console.error('Error fetching seller policy for cancellation check:', storePolicyError);
+                return res.status(500).json({ message: 'Error validating cancellation policy' });
+            }
+
+            if (storePolicy) {
+                const cancellationWindowHours = Number(storePolicy.cancellation_window_hours || 0);
+                const createdAtMs = new Date(sellerOrder.created_at).getTime();
+
+                if (Number.isFinite(createdAtMs)) {
+                    const elapsedMs = Date.now() - createdAtMs;
+                    const allowedMs = cancellationWindowHours * 60 * 60 * 1000;
+
+                    if (elapsedMs > allowedMs) {
+                        return res.status(403).json({
+                            message: `Le delai d annulation de ${cancellationWindowHours}h est depasse pour cette commande.`,
+                        });
+                    }
+                }
+            }
         }
 
         const validTransitions = {
@@ -935,6 +966,53 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
             status,
             sellerId: seller.id
         });
+
+        // Fire dedicated cancellation emails when seller cancels
+        if (status === 'cancelled') {
+            (async () => {
+                try {
+                    const cancelDate = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                    const { data: parentOrder } = await supabase
+                        .from('orders')
+                        .select('customer_email, customer_name, order_number, total_amount')
+                        .eq('id', sellerOrder.order_id)
+                        .maybeSingle();
+                    const { data: sellerInfo } = await supabase
+                        .from('sellers')
+                        .select('email, first_name, last_name')
+                        .eq('id', seller.id)
+                        .maybeSingle();
+
+                    const sellerFullName = sellerInfo ? `${sellerInfo.first_name || ''} ${sellerInfo.last_name || ''}`.trim() || 'Vendeur' : 'Vendeur';
+
+                    if (parentOrder) {
+                        await sendSellerCancelledToCustomer({
+                            toEmail: parentOrder.customer_email,
+                            customerName: parentOrder.customer_name || 'Client',
+                            sellerName: sellerFullName,
+                            orderNumber: parentOrder.order_number,
+                            orderId: sellerOrder.order_id,
+                            cancelDate,
+                            orderTotal: parentOrder.total_amount ?? 0,
+                            cancelReason: cancelReason || null,
+                        });
+                    }
+                    if (sellerInfo?.email) {
+                        await sendSellerCancelledToSeller({
+                            toEmail: sellerInfo.email,
+                            sellerName: sellerFullName,
+                            customerName: parentOrder?.customer_name || 'Client',
+                            orderNumber: parentOrder?.order_number || sellerOrderId,
+                            cancelDate,
+                            orderTotal: parentOrder?.total_amount ?? 0,
+                            cancelReason: cancelReason || null,
+                        });
+                    }
+                } catch (emailErr) {
+                    console.error('Error sending seller cancellation emails:', emailErr);
+                }
+            })();
+        }
 
         return res.status(200).json({
             message: 'Statut de la commande du vendeur mis à jour',

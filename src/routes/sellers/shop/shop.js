@@ -505,7 +505,7 @@ router.patch('/change-shop-status', sellerStoreLimiter, authenticateUser, upload
     const hasApprovedKYC = kycData && kycData.status === 'approved';
     
     if (is_live && !hasApprovedKYC) {
-      return res.status(400).json({ message: 'KYC approval is required to go live. Please complete KYC verification first.' });
+      return res.status(400).json({ message: "L'approbation KYC est requise pour passer en ligne. Veuillez d'abord effectuer la vérification KYC." });
     }
 
     // If KYC is not approved, force is_live to false regardless of request

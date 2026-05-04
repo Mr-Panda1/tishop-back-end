@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const authenticateUser = require('../../../middlewares/authMiddleware');
-const { supabase } = require('../../../db/supabase');
+const { supabaseAdmin } = require('../../../db/supabase');
 const { sellerStoreLimiter } = require('../../../middlewares/limit');
 
 const VALID_PAYMENT_METHODS = new Set(['moncash', 'natcash']);
 
 async function getSellerIdByUserId(userId) {
-    const { data: sellerRow, error: sellerError } = await supabase
+    const { data: sellerRow, error: sellerError } = await supabaseAdmin
         .from('sellers')
         .select('id')
         .eq('user_id', userId)
@@ -31,7 +31,7 @@ router.get('/add-payment', authenticateUser, sellerStoreLimiter, async (req, res
             return res.status(404).json({ error: 'Seller not found' });
         }
 
-        const { data: payments, error: paymentsError } = await supabase
+        const { data: payments, error: paymentsError } = await supabaseAdmin
             .from('payment_methods')
             .select('id, seller_id, method, account_number, account_name, updated_at')
             .eq('seller_id', sellerId)
@@ -73,7 +73,7 @@ router.post('/add-payment', authenticateUser, sellerStoreLimiter, async (req, re
             return res.status(404).json({ error: 'Seller not found' });
         }
 
-        const { data: payment, error: paymentError } = await supabase
+        const { data: payment, error: paymentError } = await supabaseAdmin
             .from('payment_methods')
             .upsert({
                 seller_id: sellerId,

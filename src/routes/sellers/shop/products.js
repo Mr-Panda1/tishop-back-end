@@ -99,7 +99,7 @@ router.post('/add-product',
             } = req.body;
 
             // Validate required fields
-            if (!name?.trim() || !description?.trim() || !category_id?.trim()) {
+            if (!name?.trim() || !category_id?.trim()) {
                 return res.status(400).json({ message: 'Le nom, la description et la catégorie sont requis' });
             }
 

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { supabase } = require('../../db/supabase');
+const { supabase, supabaseAdmin } = require('../../db/supabase');
 const { generalLimiter } = require('../../middlewares/limit');
 const upload = require('../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
@@ -9,7 +9,9 @@ const { encryptFile, hashFile } = require('../../utils/encryption');
 const {
     sendCustomerOrderPlacedEmail,
     sendSellerNewOrderEmail,
-    sendAdminNewOrderEmail
+    sendAdminNewOrderEmail,
+    sendCustomerCancelledToCustomer,
+    sendCustomerCancelledToSeller,
 } = require('../../email/notifications/lifecycleNotifications');
 const { getAdminNotificationEmails } = require('../../email/notifications/adminRecipients');
 
@@ -92,6 +94,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             pickupPointId,
             paymentMethod = 'manual',
             manualPaymentProof,
+            sellerPolicyAgreement,
             cartItems
         } = req.body;
 
@@ -226,6 +229,36 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         const shopMap = new Map((shops || []).map(shop => [shop.id, shop]));
         if (shopMap.size !== shopIds.length) {
             return res.status(400).json({ message: 'One or more shops could not be resolved for the cart' });
+        }
+
+        const { data: publishedPolicies, error: publishedPoliciesError } = await supabaseAdmin
+            .from('seller_store_policies')
+            .select('id, shop_id, preset, cancellation_window_hours, delivery_min_days, delivery_max_days, pickup_enabled, pickup_instructions, damaged_claim_window_days, support_contact_method, support_contact_value, is_published, updated_at')
+            .in('shop_id', shopIds)
+            .eq('is_published', true);
+
+        if (publishedPoliciesError) {
+            console.error('Error fetching seller store policies for checkout:', publishedPoliciesError);
+            return res.status(500).json({ message: 'Error validating seller policies' });
+        }
+
+        const publishedPoliciesByShop = new Map((publishedPolicies || []).map((policy) => [policy.shop_id, policy]));
+
+        if (publishedPoliciesByShop.size > 0) {
+            if (!sellerPolicyAgreement || sellerPolicyAgreement.agreed !== true) {
+                return res.status(400).json({ message: 'Vous devez accepter les règles du vendeur avant de commander.' });
+            }
+
+            const agreedShopId = String(sellerPolicyAgreement.shopId || '');
+            const matchedPolicy = publishedPoliciesByShop.get(agreedShopId) || publishedPoliciesByShop.get(shopIds[0]);
+
+            if (!matchedPolicy) {
+                return res.status(400).json({ message: 'Aucune règle valide trouvée pour cette boutique.' });
+            }
+
+            if (sellerPolicyAgreement.policyId && sellerPolicyAgreement.policyId !== matchedPolicy.id) {
+                return res.status(409).json({ message: 'Les règles du vendeur ont changé. Veuillez relire et confirmer à nouveau.' });
+            }
         }
 
         let deliveryMap = new Map();
@@ -380,6 +413,43 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             return res.status(500).json({ message: 'Error creating order items' });
         }
 
+        const policiesToPersist = Array.from(publishedPoliciesByShop.values());
+        if (policiesToPersist.length > 0) {
+            const policyAgreementRows = policiesToPersist.map((policy) => ({
+                order_id: orderId,
+                shop_id: policy.shop_id,
+                seller_policy_id: policy.id,
+                agreed_at: new Date().toISOString(),
+                policy_snapshot: {
+                    id: policy.id,
+                    preset: policy.preset,
+                    cancellation_window_hours: policy.cancellation_window_hours,
+                    delivery_min_days: policy.delivery_min_days,
+                    delivery_max_days: policy.delivery_max_days,
+                    pickup_enabled: policy.pickup_enabled,
+                    pickup_instructions: policy.pickup_instructions,
+                    damaged_claim_window_days: policy.damaged_claim_window_days,
+                    support_contact_method: policy.support_contact_method,
+                    support_contact_value: policy.support_contact_value,
+                    updated_at: policy.updated_at,
+                    client_agreement: {
+                        agreed: Boolean(sellerPolicyAgreement?.agreed),
+                        policy_id: sellerPolicyAgreement?.policyId || null,
+                        policy_updated_at: sellerPolicyAgreement?.policyUpdatedAt || null,
+                    },
+                },
+            }));
+
+            const { error: policyAgreementError } = await supabaseAdmin
+                .from('customer_order_policy_agreements')
+                .insert(policyAgreementRows);
+
+            if (policyAgreementError) {
+                console.error('Error recording customer policy agreement:', policyAgreementError);
+                return res.status(500).json({ message: 'Error recording policy agreement' });
+            }
+        }
+
         const sellerIds = [...new Set((sellerOrders || []).map(item => item.seller_id).filter(Boolean))];
         let sellersById = new Map();
 
@@ -500,7 +570,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
                     orderDate: orderData.created_at
                 });
             } catch (error) {
-                console.error(`Error sending seller new order email to ${seller.email}:`, error.message);
+                console.error('Error sending seller new order email:', error.message);
             }
         });
 
@@ -518,7 +588,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
                         paymentMethod
                     });
                 } catch (error) {
-                    console.error(`Error sending admin new order email to ${adminEmail}:`, error.message);
+                    console.error('Error sending admin new order email:', error.message);
                 }
             }));
         } catch (error) {
@@ -726,6 +796,153 @@ router.get('/', generalLimiter, async (req, res) => {
         });
     } catch (error) {
         console.error('Get orders error:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// Default cancellation window when the seller has no published policy
+const DEFAULT_CANCELLATION_WINDOW_HOURS = 24;
+
+// POST cancel a seller order (customer-initiated)
+router.post('/cancel/:sellerOrderId', generalLimiter, async (req, res) => {
+    try {
+        const { sellerOrderId } = req.params;
+        const { email } = req.body;
+
+        if (!email || !sellerOrderId) {
+            return res.status(400).json({ message: 'Email et identifiant de commande requis' });
+        }
+
+        // Fetch the seller_order and its parent order to verify ownership
+        const { data: sellerOrder, error: sellerOrderError } = await supabaseAdmin
+            .from('seller_orders')
+            .select('id, order_id, shop_id, seller_id, status, created_at')
+            .eq('id', sellerOrderId)
+            .maybeSingle();
+
+        if (sellerOrderError) {
+            console.error('Error fetching seller order for cancel:', sellerOrderError);
+            return res.status(500).json({ message: 'Erreur lors de la récupération de la commande' });
+        }
+        if (!sellerOrder) {
+            return res.status(404).json({ message: 'Commande introuvable' });
+        }
+
+        // Verify ownership via customer email on parent order
+        const { data: parentOrder, error: parentOrderError } = await supabaseAdmin
+            .from('orders')
+            .select('id, customer_email, customer_name, order_number, total_amount')
+            .eq('id', sellerOrder.order_id)
+            .maybeSingle();
+
+        if (parentOrderError || !parentOrder) {
+            return res.status(404).json({ message: 'Commande introuvable' });
+        }
+
+        if (parentOrder.customer_email.toLowerCase() !== email.toLowerCase()) {
+            return res.status(403).json({ message: 'Email incorrect pour cette commande' });
+        }
+
+        // Only pending orders can be cancelled by the customer
+        if (sellerOrder.status !== 'pending') {
+            return res.status(400).json({
+                message: sellerOrder.status === 'cancelled'
+                    ? 'Cette commande est déjà annulée'
+                    : 'Cette commande ne peut plus être annulée car elle a déjà été traitée par le vendeur'
+            });
+        }
+
+        // Fetch the seller's published policy for the cancellation window
+        const { data: storePolicy, error: storePolicyError } = await supabaseAdmin
+            .from('seller_store_policies')
+            .select('cancellation_window_hours, is_published')
+            .eq('shop_id', sellerOrder.shop_id)
+            .maybeSingle();
+
+        if (storePolicyError) {
+            console.error('Error fetching store policy for customer cancel:', storePolicyError);
+            return res.status(500).json({ message: 'Erreur lors de la vérification des règles de la boutique' });
+        }
+
+        let windowHours = DEFAULT_CANCELLATION_WINDOW_HOURS;
+        if (storePolicy && storePolicy.is_published) {
+            windowHours = Number(storePolicy.cancellation_window_hours);
+        }
+
+        // windowHours === 0 means cancellation is not accepted by this seller
+        if (windowHours === 0) {
+            return res.status(400).json({ message: 'Ce vendeur n\'accepte pas les annulations' });
+        }
+
+        // Check the order is still within the cancellation window
+        const orderCreatedAt = new Date(sellerOrder.created_at).getTime();
+        const now = Date.now();
+        const elapsedMs = now - orderCreatedAt;
+        const allowedMs = windowHours * 60 * 60 * 1000;
+
+        if (elapsedMs > allowedMs) {
+            return res.status(400).json({
+                message: `Le délai d'annulation de ${windowHours}h est dépassé pour cette commande`
+            });
+        }
+
+        // Perform the cancellation
+        const { error: updateError } = await supabaseAdmin
+            .from('seller_orders')
+            .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+            .eq('id', sellerOrderId);
+
+        if (updateError) {
+            console.error('Error cancelling seller order:', updateError);
+            return res.status(500).json({ message: 'Erreur lors de l\'annulation de la commande' });
+        }
+
+        // Fire cancellation emails (fire-and-forget)
+        (async () => {
+            try {
+                const cancelDate = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+                const orderTotal = parentOrder.total_amount ?? 0;
+
+                // Fetch seller email and name for the seller notification
+                let sellerEmail = null;
+                let sellerName = 'Vendeur';
+                const { data: sellerData, error: sellerDataError } = await supabaseAdmin
+                    .from('sellers')
+                    .select('email, first_name, last_name')
+                    .eq('id', sellerOrder.seller_id)
+                    .maybeSingle();
+                if (!sellerDataError && sellerData) {
+                    sellerEmail = sellerData.email;
+                    sellerName = `${sellerData.first_name || ''} ${sellerData.last_name || ''}`.trim() || sellerName;
+                }
+
+                await sendCustomerCancelledToCustomer({
+                    toEmail: parentOrder.customer_email,
+                    customerName: parentOrder.customer_name || 'Client',
+                    orderNumber: parentOrder.order_number,
+                    orderId: parentOrder.id,
+                    cancelDate,
+                    orderTotal,
+                });
+
+                if (sellerEmail) {
+                    await sendCustomerCancelledToSeller({
+                        toEmail: sellerEmail,
+                        sellerName,
+                        customerName: parentOrder.customer_name || 'Client',
+                        orderNumber: parentOrder.order_number,
+                        cancelDate,
+                        orderTotal,
+                    });
+                }
+            } catch (emailErr) {
+                console.error('Error sending cancellation emails:', emailErr);
+            }
+        })();
+
+        return res.status(200).json({ message: 'Commande annulée avec succès' });
+    } catch (error) {
+        console.error('Cancel seller order error:', error);
         return res.status(500).json({ message: 'Internal server error' });
     }
 });

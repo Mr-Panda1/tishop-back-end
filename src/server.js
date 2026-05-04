@@ -107,6 +107,7 @@ app.get('/health', async (req, res) => {
 console.log("Registering routes...");
 // seller
 app.use('/api', require('./routes/sellers/auth/auth'));
+app.use('/api', require('./routes/sellers/auth/onboarding'));
 app.use('/api/middleware', require('./middlewares/verifyUser'));
 app.use('/data', require('./routes/country/countryData'));
 app.use('/seller/shop/brand', require('./routes/sellers/shop/shop'));
@@ -115,6 +116,7 @@ app.use('/seller/kyc', require('./routes/sellers/kyc/kyc'));
 app.use('/seller/orders', require('./routes/sellers/orders'));
 app.use('/seller', require('./routes/sellers/payout/payouts'));
 app.use('/seller/payment', require('./routes/sellers/payment/payment'));
+app.use('/seller', require('./routes/sellers/policies/policies'));
 app.use('/api/shop', require('./routes/shop/shopPaymentMethods'));
 
 // customer
