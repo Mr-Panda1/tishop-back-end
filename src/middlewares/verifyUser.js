@@ -1,6 +1,9 @@
 const express = require('express');
 const { supabase } = require('../db/supabase');
+const { decryptFields } = require('../utils/encryption');
 const router = express.Router();
+
+const USER_ENCRYPTED_FIELDS = ['first_name', 'last_name'];
 
 router.get('/verify-user', async (req, res) => {
     try {
@@ -87,13 +90,15 @@ router.get('/verify-user', async (req, res) => {
             });
         }
 
+        const decryptedProfile = decryptFields(profile, USER_ENCRYPTED_FIELDS);
+
         return res.status(200).json({
             authenticated: true,
             user: { id: user.id, email: user.email },
-            role: profile.role,
-            first_name: profile.first_name,
-            last_name: profile.last_name,
-            is_active: profile.is_active,
+            role: decryptedProfile.role,
+            first_name: decryptedProfile.first_name,
+            last_name: decryptedProfile.last_name,
+            is_active: decryptedProfile.is_active,
         });
     } catch (error) {
         console.error("Verify error:", error);

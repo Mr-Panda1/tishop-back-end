@@ -2,12 +2,41 @@ const express = require('express');
 const { supabase } = require('../../db/supabase');
 const router = express.Router();
 const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthMiddleware');
-const { decryptFile } = require('../../utils/encryption');
+const { decryptFile, decryptFields } = require('../../utils/encryption');
 const {
     sendCustomerOrderPaidEmail,
     sendSellerOrderPaidEmail
 } = require('../../email/notifications/lifecycleNotifications');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
+const ORDER_ENCRYPTED_FIELDS = [
+    'customer_name',
+    'customer_phone',
+    'landmark',
+    'manual_payment_reference',
+    'manual_payment_sender_phone',
+    'manual_payment_screenshot_name',
+];
+
+const decryptSellerSnapshot = (seller) => decryptFields(seller, SELLER_ENCRYPTED_FIELDS);
+const decryptOrderSnapshot = (order) => decryptFields(order, ORDER_ENCRYPTED_FIELDS);
+
+const decryptOrdersSellerSnapshots = (orders = []) => {
+    return (orders || []).map((order) => ({
+        ...decryptOrderSnapshot(order),
+        seller_orders: (order.seller_orders || []).map((sellerOrder) => ({
+            ...sellerOrder,
+            shops: sellerOrder.shops
+                ? {
+                    ...sellerOrder.shops,
+                    sellers: sellerOrder.shops.sellers
+                        ? decryptSellerSnapshot(sellerOrder.shops.sellers)
+                        : sellerOrder.shops.sellers,
+                }
+                : sellerOrder.shops,
+        })),
+    }));
+};
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
@@ -58,7 +87,7 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
         // Search by order number or customer name/email
         if (search) {
             const searchTerm = `%${search}%`;
-            query = query.or(`order_number.ilike.${searchTerm},customer_name.ilike.${searchTerm},customer_email.ilike.${searchTerm}`);
+            query = query.or(`order_number.ilike.${searchTerm},customer_email.ilike.${searchTerm}`);
         }
 
         // Pagination
@@ -74,18 +103,20 @@ router.get('/admin/orders', authenticateAdmin, async (req, res) => {
             });
         }
 
+        const decryptedOrders = decryptOrdersSellerSnapshots(orders || []);
+
         return res.status(200)
             .set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
             .json({
                 success: true,
-                count: orders.length,
+                count: decryptedOrders.length,
                 total: count,
                 pagination: {
                     limit: safeLimit,
                     offset: safeOffset,
                     total: count
                 },
-                data: orders
+                data: decryptedOrders
             });
 
     } catch (error) {
@@ -177,19 +208,21 @@ router.get('/admin/orders/:orderId', authenticateAdmin, async (req, res) => {
             });
         }
 
+        const [decryptedOrder] = decryptOrdersSellerSnapshots([order]);
+
         console.log('✅ Order fetched successfully');
-        console.log('📍 Order keys:', Object.keys(order));
-        console.log('📍 Seller orders count:', order.seller_orders?.length ?? 0);
-        if (order.seller_orders && order.seller_orders.length > 0) {
-            console.log('📍 First seller order items count:', order.seller_orders[0].order_items?.length ?? 0);
-            console.log('📍 Seller order structure:', JSON.stringify(order.seller_orders[0], null, 2));
+        console.log('📍 Order keys:', Object.keys(decryptedOrder));
+        console.log('📍 Seller orders count:', decryptedOrder.seller_orders?.length ?? 0);
+        if (decryptedOrder.seller_orders && decryptedOrder.seller_orders.length > 0) {
+            console.log('📍 First seller order items count:', decryptedOrder.seller_orders[0].order_items?.length ?? 0);
+            console.log('📍 Seller order structure:', JSON.stringify(decryptedOrder.seller_orders[0], null, 2));
         }
 
         return res.status(200)
             .set('Cache-Control', 'no-store, no-cache, must-revalidate')
             .json({
                 success: true,
-                data: order
+                data: decryptedOrder
             });
 
     } catch (error) {
@@ -293,11 +326,13 @@ router.put('/admin/orders/:orderId/verify-payment',
                 });
             }
 
-            const { data: order, error: orderError } = await supabase
+            const { data: orderRaw, error: orderError } = await supabase
                 .from('orders')
                 .select('id, order_number, customer_name, customer_email, total_amount, payment_method, status, manual_payment_verified_at, manual_payment_rejection_reason')
                 .eq('id', orderId)
                 .single();
+
+            const order = orderRaw ? decryptOrderSnapshot(orderRaw) : orderRaw;
 
             if (orderError || !order) {
                 return res.status(404).json({
@@ -383,7 +418,10 @@ router.put('/admin/orders/:orderId/verify-payment',
 
                     const sellersById = sellersError
                         ? new Map()
-                        : new Map((sellers || []).map(seller => [seller.id, seller]));
+                        : new Map((sellers || []).map((seller) => {
+                            const decryptedSeller = decryptSellerSnapshot(seller);
+                            return [decryptedSeller.id, decryptedSeller];
+                        }));
 
                     if (sellersError) {
                         console.error('Error fetching sellers for paid email:', sellersError);

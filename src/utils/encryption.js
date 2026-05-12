@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 
+const TEXT_ENCRYPTION_VERSION = 'enc:v1';
+
 // Get encryption key from environment or generate one
 // In production, store this securely (e.g., AWS KMS, environment variable)
 const getEncryptionKey = () => {
@@ -74,6 +76,102 @@ const decryptFile = (encryptedData, iv, authTag) => {
     }
 };
 
+const isEncryptedText = (value) => {
+    return typeof value === 'string' && value.startsWith(`${TEXT_ENCRYPTION_VERSION}:`);
+};
+
+const encryptText = (value) => {
+    if (value == null) {
+        return value;
+    }
+
+    const plainText = String(value);
+    if (!plainText) {
+        return plainText;
+    }
+
+    if (isEncryptedText(plainText)) {
+        return plainText;
+    }
+
+    try {
+        const algorithm = 'aes-256-gcm';
+        const key = getEncryptionKey();
+        const iv = crypto.randomBytes(16);
+        const cipher = crypto.createCipheriv(algorithm, Buffer.from(key, 'utf8'), iv);
+
+        let encrypted = cipher.update(plainText, 'utf8', 'base64');
+        encrypted += cipher.final('base64');
+
+        const authTag = cipher.getAuthTag().toString('base64');
+        return `${TEXT_ENCRYPTION_VERSION}:${iv.toString('base64')}:${authTag}:${encrypted}`;
+    } catch (error) {
+        console.error('Text encryption error:', error);
+        throw new Error('Failed to encrypt text');
+    }
+};
+
+const decryptText = (value) => {
+    if (value == null || typeof value !== 'string' || !value) {
+        return value;
+    }
+
+    if (!isEncryptedText(value)) {
+        return value;
+    }
+
+    try {
+        const [, version, ivBase64, authTagBase64, encrypted] = value.split(':');
+        if (!version || !ivBase64 || !authTagBase64 || !encrypted) {
+            throw new Error('Invalid encrypted text payload');
+        }
+
+        const algorithm = 'aes-256-gcm';
+        const key = getEncryptionKey();
+        const decipher = crypto.createDecipheriv(
+            algorithm,
+            Buffer.from(key, 'utf8'),
+            Buffer.from(ivBase64, 'base64')
+        );
+
+        decipher.setAuthTag(Buffer.from(authTagBase64, 'base64'));
+
+        let decrypted = decipher.update(encrypted, 'base64', 'utf8');
+        decrypted += decipher.final('utf8');
+
+        return decrypted;
+    } catch (error) {
+        console.error('Text decryption error:', error);
+        throw new Error('Failed to decrypt text');
+    }
+};
+
+const encryptFields = (row, fieldList = []) => {
+    if (!row || typeof row !== 'object') {
+        return row;
+    }
+
+    return fieldList.reduce((accumulator, fieldName) => {
+        if (Object.prototype.hasOwnProperty.call(accumulator, fieldName)) {
+            accumulator[fieldName] = encryptText(accumulator[fieldName]);
+        }
+        return accumulator;
+    }, { ...row });
+};
+
+const decryptFields = (row, fieldList = []) => {
+    if (!row || typeof row !== 'object') {
+        return row;
+    }
+
+    return fieldList.reduce((accumulator, fieldName) => {
+        if (Object.prototype.hasOwnProperty.call(accumulator, fieldName)) {
+            accumulator[fieldName] = decryptText(accumulator[fieldName]);
+        }
+        return accumulator;
+    }, { ...row });
+};
+
 /**
  * Generate a random encryption key (32 bytes for AES-256)
  * Use this to generate a key to store in .env
@@ -95,6 +193,11 @@ const hashFile = (data) => {
 module.exports = {
     encryptFile,
     decryptFile,
+    encryptText,
+    decryptText,
+    isEncryptedText,
+    encryptFields,
+    decryptFields,
     generateEncryptionKey,
     hashFile,
     getEncryptionKey

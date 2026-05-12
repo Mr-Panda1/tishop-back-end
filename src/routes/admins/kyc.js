@@ -2,10 +2,18 @@ const express = require('express');
 const { supabase, supabaseAdmin } = require('../../db/supabase');
 const router = express.Router();
 const { authenticateAdmin, requireRole } = require('../../middlewares/adminAuthMiddleware');
-const { decryptFile } = require('../../utils/encryption');
+const { decryptFile, decryptFields } = require('../../utils/encryption');
 const { sendKycApprovalEmail, sendKycRejectionEmail } = require('../../email/seller/kycEmails');
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const KYC_BUCKET = 'kyc_documents';
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
+const KYC_DOCUMENT_ENCRYPTED_FIELDS = [
+    'first_name',
+    'last_name',
+    'phone',
+    'commune_id',
+    'id_number',
+];
 
 const getKycFilePaths = (kycFileRow) => {
     if (!kycFileRow) return [];
@@ -281,8 +289,8 @@ router.get('/admin/kyc',authenticateAdmin, async (req, res) => {
             };
 
             return {
-                ...doc,
-                seller: doc.sellers,
+                ...decryptFields(doc, KYC_DOCUMENT_ENCRYPTED_FIELDS),
+                seller: doc.sellers ? decryptFields(doc.sellers, SELLER_ENCRYPTED_FIELDS) : doc.sellers,
                 files: documentFiles.length > 0 ? [singleFileObj] : []
             };
         }));
@@ -480,10 +488,12 @@ router.put('/admin/kyc/:id/approve',
                 });
             }
 
+            const decryptedSeller = decryptFields(updatedSeller, SELLER_ENCRYPTED_FIELDS);
+
             // Send approval notification email (non-blocking)
-            if (updatedSeller.email) {
-                const sellerName = [updatedSeller.first_name, updatedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
-                sendKycApprovalEmail(updatedSeller.email, sellerName).catch((err) =>
+            if (decryptedSeller.email) {
+                const sellerName = [decryptedSeller.first_name, decryptedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
+                sendKycApprovalEmail(decryptedSeller.email, sellerName).catch((err) =>
                     console.error('Failed to send KYC approval email:', err.message)
                 );
             }
@@ -492,7 +502,7 @@ router.put('/admin/kyc/:id/approve',
                 success: true,
                 message: 'KYC approved successfully.',
                 kyc: approvedKyc,
-                seller: updatedSeller,
+                seller: decryptedSeller,
                 reviewed_by: {
                     id: req.admin.id,
                     role: req.admin.role
@@ -635,10 +645,14 @@ router.put('/admin/kyc/:id/reject',
                 console.error('Error updating seller verification status:', sellerUpdateError);
             }
 
+            const decryptedSeller = updatedSeller
+                ? decryptFields(updatedSeller, SELLER_ENCRYPTED_FIELDS)
+                : updatedSeller;
+
             // Send rejection notification email (non-blocking)
-            if (updatedSeller?.email) {
-                const sellerName = [updatedSeller.first_name, updatedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
-                sendKycRejectionEmail(updatedSeller.email, sellerName, rejection_reason.trim()).catch((err) =>
+            if (decryptedSeller?.email) {
+                const sellerName = [decryptedSeller.first_name, decryptedSeller.last_name].filter(Boolean).join(' ') || 'Vendeur';
+                sendKycRejectionEmail(decryptedSeller.email, sellerName, rejection_reason.trim()).catch((err) =>
                     console.error('Failed to send KYC rejection email:', err.message)
                 );
             }
@@ -648,7 +662,7 @@ router.put('/admin/kyc/:id/reject',
                 message: 'KYC rejected and deleted successfully.',
                 deleted_kyc_document_id: deletedKyc.id,
                 deleted_storage_objects_count: deletedStorageCount,
-                seller: updatedSeller,
+                seller: decryptedSeller,
                 rejection_reason: rejection_reason.trim(),
                 reviewed_by: {
                     id: req.admin.id,

@@ -3,8 +3,10 @@ const router = express.Router();
 const authenticateUser = require('../../../middlewares/authMiddleware');
 const { supabaseAdmin } = require('../../../db/supabase');
 const { sellerStoreLimiter } = require('../../../middlewares/limit');
+const { encryptFields, decryptFields } = require('../../../utils/encryption');
 
 const VALID_PAYMENT_METHODS = new Set(['moncash', 'natcash']);
+const PAYMENT_METHOD_ENCRYPTED_FIELDS = ['account_name', 'account_number'];
 
 async function getSellerIdByUserId(userId) {
     const { data: sellerRow, error: sellerError } = await supabaseAdmin
@@ -42,9 +44,13 @@ router.get('/add-payment', authenticateUser, sellerStoreLimiter, async (req, res
             return res.status(500).json({ error: 'Error fetching payment methods' });
         }
 
+        const decryptedPayments = (payments || []).map((payment) =>
+            decryptFields(payment, PAYMENT_METHOD_ENCRYPTED_FIELDS)
+        );
+
         return res.status(200).json({
             success: true,
-            payment_methods: payments || []
+            payment_methods: decryptedPayments
         });
     } catch (error) {
         console.error('Unexpected error while fetching payment methods:', error);
@@ -75,13 +81,13 @@ router.post('/add-payment', authenticateUser, sellerStoreLimiter, async (req, re
 
         const { data: payment, error: paymentError } = await supabaseAdmin
             .from('payment_methods')
-            .upsert({
+            .upsert(encryptFields({
                 seller_id: sellerId,
                 method: payment_method,
                 account_number,
                 account_name,
                 updated_at: new Date().toISOString(),
-             }, { onConflict: 'seller_id,method' })
+             }, PAYMENT_METHOD_ENCRYPTED_FIELDS), { onConflict: 'seller_id,method' })
             .select('id, seller_id, method, account_number, account_name')
             .single();
 
@@ -90,9 +96,11 @@ router.post('/add-payment', authenticateUser, sellerStoreLimiter, async (req, re
             return res.status(500).json({ error: 'Error saving payment method' });
         }
 
+        const decryptedPayment = decryptFields(payment, PAYMENT_METHOD_ENCRYPTED_FIELDS);
+
         return res.status(200).json({
             success: true,
-            payment_method: payment
+            payment_method: decryptedPayment
         });
 
     } catch (error) {

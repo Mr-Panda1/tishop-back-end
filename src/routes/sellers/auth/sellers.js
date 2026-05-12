@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../../../db/supabase');
+const { decryptFields, encryptFields } = require('../../../utils/encryption');
+
+const USER_ENCRYPTED_FIELDS = ['first_name', 'last_name'];
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
 
 // Seller registration
 // function to verify seller role and if it is seller then create a seller profile for them 
@@ -19,6 +23,8 @@ async function createSellersandShops() {
 
     // create a seller profile for each selller
     for (const user of users) {
+        const decryptedUser = decryptFields(user, USER_ENCRYPTED_FIELDS);
+
         const { data: existingSeller, error: existingSellerError } = await supabase
         .from('sellers')
         .select('*')
@@ -31,17 +37,19 @@ async function createSellersandShops() {
         }
 
         // Create seller profile
-            const { data: newSeller, error: newSellerError } = await supabase
-            .from('sellers')
-            .insert([{
+            const sellerPayload = encryptFields({
                 user_id: user.id,
-                first_name: user.first_name,
-                last_name: user.last_name,
-                email: user.email,
+                first_name: decryptedUser.first_name,
+                last_name: decryptedUser.last_name,
+                email: decryptedUser.email,
                 phone: null,
                 is_verified: false,
                 verification_status: 'pending',
-            }])
+            }, SELLER_ENCRYPTED_FIELDS);
+
+            const { data: newSeller, error: newSellerError } = await supabase
+            .from('sellers')
+            .insert([sellerPayload])
             .select()
             .single();
 

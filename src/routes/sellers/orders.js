@@ -4,18 +4,32 @@ const authenticateUser = require('../../middlewares/authMiddleware');
 const { supabase, supabaseAdmin } = require('../../db/supabase');
 const { sellerStoreLimiter } = require('../../middlewares/limit');
 const { sendCustomerOrderStatusEmail, sendSellerOrderPaidEmail, sendCustomerOrderPaidEmail, sendSellerCancelledToCustomer, sendSellerCancelledToSeller } = require('../../email/notifications/lifecycleNotifications');
-const { decryptFile } = require('../../utils/encryption');
+const { decryptFile, decryptFields } = require('../../utils/encryption');
+
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
+const ORDER_ENCRYPTED_FIELDS = [
+    'customer_name',
+    'customer_phone',
+    'landmark',
+    'manual_payment_reference',
+    'manual_payment_sender_phone',
+    'manual_payment_screenshot_name',
+];
+
+const decryptOrder = (order) => decryptFields(order, ORDER_ENCRYPTED_FIELDS);
 
 const generateDeliveryCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const verifyCodeMatch = (inputCode, storedCode) => inputCode === storedCode;
 
 const notifyCustomerOrderStatusUpdate = async ({ orderId, status, sellerId }) => {
-    const { data: order, error: orderError } = await supabase
+    const { data: orderRaw, error: orderError } = await supabase
         .from('orders')
         .select('order_number, customer_name, customer_email')
         .eq('id', orderId)
         .maybeSingle();
+
+    const order = orderRaw ? decryptOrder(orderRaw) : orderRaw;
 
     if (orderError || !order?.customer_email) {
         if (orderError) {
@@ -33,7 +47,8 @@ const notifyCustomerOrderStatusUpdate = async ({ orderId, status, sellerId }) =>
             .maybeSingle();
 
         if (!sellerError && seller) {
-            sellerName = `${seller.first_name || ''} ${seller.last_name || ''}`.trim() || 'Vendeur';
+            const decryptedSeller = decryptFields(seller, SELLER_ENCRYPTED_FIELDS);
+            sellerName = `${decryptedSeller.first_name || ''} ${decryptedSeller.last_name || ''}`.trim() || 'Vendeur';
         }
     }
 
@@ -104,8 +119,9 @@ router.get('/', authenticateUser, sellerStoreLimiter, async (req, res) => {
                 return res.status(500).json({ message: 'Error fetching orders' });
             }
 
-            orders.forEach(order => {
-                orderDetails[order.id] = order;
+            (orders || []).forEach((order) => {
+                const decryptedOrder = decryptOrder(order);
+                orderDetails[decryptedOrder.id] = decryptedOrder;
             });
 
             const { data: items, error: itemsError } = await supabase
@@ -546,11 +562,13 @@ router.put('/:sellerOrderId/verify-payment', authenticateUser, sellerStoreLimite
         }
 
         // Fetch the parent order
-        const { data: order, error: orderError } = await supabase
+        const { data: orderRaw, error: orderError } = await supabase
             .from('orders')
             .select('id, order_number, customer_name, customer_email, total_amount, payment_method, status, manual_payment_verified_at')
             .eq('id', sellerOrder.order_id)
             .single();
+
+        const order = orderRaw ? decryptOrder(orderRaw) : orderRaw;
 
         if (orderError || !order) {
             return res.status(404).json({ success: false, message: 'Order not found' });
@@ -614,7 +632,10 @@ router.put('/:sellerOrderId/verify-payment', authenticateUser, sellerStoreLimite
                     .select('id, first_name, last_name, email')
                     .in('id', sellerIds);
 
-                const sellersById = new Map((sellers || []).map(s => [s.id, s]));
+                const sellersById = new Map((sellers || []).map((s) => {
+                    const decryptedSeller = decryptFields(s, SELLER_ENCRYPTED_FIELDS);
+                    return [decryptedSeller.id, decryptedSeller];
+                }));
 
                 await Promise.all(allSellerOrders.map(async (so) => {
                     const s = sellersById.get(so.seller_id);
@@ -716,11 +737,13 @@ router.get('/:sellerOrderId', authenticateUser, async (req, res) => {
             return res.status(404).json({ message: 'Seller order not found' });
         }
 
-        const { data: order, error: orderError } = await supabase
+        const { data: orderRaw, error: orderError } = await supabase
             .from('orders')
             .select('*')
             .eq('id', sellerOrder.order_id)
             .maybeSingle();
+
+        const order = orderRaw ? decryptOrder(orderRaw) : orderRaw;
 
         if (orderError) {
             console.error('Error fetching order:', orderError);
@@ -972,18 +995,26 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
             (async () => {
                 try {
                     const cancelDate = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-                    const { data: parentOrder } = await supabase
+                    const { data: parentOrderRaw } = await supabase
                         .from('orders')
                         .select('customer_email, customer_name, order_number, total_amount')
                         .eq('id', sellerOrder.order_id)
                         .maybeSingle();
+
+                    const parentOrder = parentOrderRaw ? decryptOrder(parentOrderRaw) : parentOrderRaw;
                     const { data: sellerInfo } = await supabase
                         .from('sellers')
                         .select('email, first_name, last_name')
                         .eq('id', seller.id)
                         .maybeSingle();
 
-                    const sellerFullName = sellerInfo ? `${sellerInfo.first_name || ''} ${sellerInfo.last_name || ''}`.trim() || 'Vendeur' : 'Vendeur';
+                    const decryptedSellerInfo = sellerInfo
+                        ? decryptFields(sellerInfo, SELLER_ENCRYPTED_FIELDS)
+                        : sellerInfo;
+
+                    const sellerFullName = decryptedSellerInfo
+                        ? `${decryptedSellerInfo.first_name || ''} ${decryptedSellerInfo.last_name || ''}`.trim() || 'Vendeur'
+                        : 'Vendeur';
 
                     if (parentOrder) {
                         await sendSellerCancelledToCustomer({
@@ -997,9 +1028,9 @@ router.patch('/:sellerOrderId/status', authenticateUser, sellerStoreLimiter, asy
                             cancelReason: cancelReason || null,
                         });
                     }
-                    if (sellerInfo?.email) {
+                    if (decryptedSellerInfo?.email) {
                         await sendSellerCancelledToSeller({
-                            toEmail: sellerInfo.email,
+                            toEmail: decryptedSellerInfo.email,
                             sellerName: sellerFullName,
                             customerName: parentOrder?.customer_name || 'Client',
                             orderNumber: parentOrder?.order_number || sellerOrderId,

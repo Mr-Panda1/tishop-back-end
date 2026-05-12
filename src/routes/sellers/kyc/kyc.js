@@ -5,12 +5,19 @@ const { supabase } = require('../../../db/supabase');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const { sellerKYCLimiter } = require('../../../middlewares/limit');
-const { encryptFile, decryptFile, hashFile } = require('../../../utils/encryption');
+const { encryptFile, decryptFile, hashFile, encryptFields } = require('../../../utils/encryption');
 
 const BUCKET_NAME = 'kyc_documents';
 const MAX_IMAGES = 3;
 const IMAGE_WIDTH = 1200;
 const IMAGE_QUALITY = 80;
+const KYC_DOCUMENT_ENCRYPTED_FIELDS = [
+    'first_name',
+    'last_name',
+    'phone',
+    'commune_id',
+    'id_number',
+];
 
 // POST /sellers/kyc - Submit KYC documents
 router.post('/submit-kyc', authenticateUser, sellerKYCLimiter, 
@@ -69,20 +76,22 @@ router.post('/submit-kyc', authenticateUser, sellerKYCLimiter,
             }
 
             // Insert KYC record
+            const kycInsertPayload = encryptFields({
+                seller_id: sellerRow.id,
+                first_name,
+                last_name,
+                phone,
+                date_of_birth,
+                commune_id,
+                id_type,
+                id_number,
+                status: 'pending',
+                submitted_at: new Date().toISOString()
+            }, KYC_DOCUMENT_ENCRYPTED_FIELDS);
+
             const { data: kycData, error: kycInsertError } = await supabase
                 .from('kyc_documents')
-                .insert({
-                    seller_id: sellerRow.id,
-                    first_name,
-                    last_name,
-                    phone,
-                    date_of_birth,
-                    commune_id,
-                    id_type,
-                    id_number,
-                    status: 'pending',
-                    submitted_at: new Date().toISOString()
-                })
+                .insert(kycInsertPayload)
                 .select()
                 .single();
 

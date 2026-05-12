@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { supabase, supabaseAdmin } = require('../../db/supabase');
+const { decryptFields } = require('../../utils/encryption');
+
+const PAYMENT_METHOD_ENCRYPTED_FIELDS = ['account_name', 'account_number'];
 
 // GET /api/shop/:shopId/payment-methods
 // Public endpoint — returns payment methods configured by a shop's seller
@@ -30,7 +33,11 @@ router.get('/:shopId/payment-methods', async (req, res) => {
             return res.status(500).json({ success: false, error: 'Failed to fetch payment methods' });
         }
 
-        return res.json({ success: true, payment_methods: paymentMethods || [] });
+        const decryptedPaymentMethods = (paymentMethods || []).map((method) =>
+            decryptFields(method, PAYMENT_METHOD_ENCRYPTED_FIELDS)
+        );
+
+        return res.json({ success: true, payment_methods: decryptedPaymentMethods });
     } catch (error) {
         console.error('Shop payment methods error:', error);
         return res.status(500).json({ success: false, error: 'Internal server error' });

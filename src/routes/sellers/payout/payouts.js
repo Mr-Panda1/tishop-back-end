@@ -8,6 +8,16 @@ const {
 	sendAdminPayoutRequestedEmail
 } = require('../../../email/notifications/lifecycleNotifications');
 const { getAdminNotificationEmails } = require('../../../email/notifications/adminRecipients');
+const { decryptFields } = require('../../../utils/encryption');
+
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
+const KYC_DOCUMENT_ENCRYPTED_FIELDS = [
+	'first_name',
+	'last_name',
+	'phone',
+	'commune_id',
+	'id_number',
+];
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -27,11 +37,11 @@ const fetchSeller = async (userId) => {
 		throw new Error('Error verifying seller');
 	}
 
-	return seller;
+	return decryptFields(seller, SELLER_ENCRYPTED_FIELDS);
 };
 
 const fetchLatestKyc = async (sellerId) => {
-	const { data: kyc, error } = await supabase
+	const { data: kycWithPayout, error: kycWithPayoutError } = await supabase
 		.from('kyc_documents')
 		.select('status, payout_method, payout_account_number, payout_account_name')
 		.eq('seller_id', sellerId)
@@ -39,11 +49,33 @@ const fetchLatestKyc = async (sellerId) => {
 		.limit(1)
 		.maybeSingle();
 
-	if (error) {
+	if (!kycWithPayoutError) {
+		return decryptFields(kycWithPayout, KYC_DOCUMENT_ENCRYPTED_FIELDS);
+	}
+
+	const isMissingPayoutColumn = String(kycWithPayoutError.message || '').toLowerCase().includes('does not exist');
+	if (!isMissingPayoutColumn) {
 		throw new Error('Error fetching KYC status');
 	}
 
-	return kyc;
+	const { data: kycStatusOnly, error: kycStatusError } = await supabase
+		.from('kyc_documents')
+		.select('status')
+		.eq('seller_id', sellerId)
+		.order('submitted_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	if (kycStatusError) {
+		throw new Error('Error fetching KYC status');
+	}
+
+	return {
+		...decryptFields(kycStatusOnly, KYC_DOCUMENT_ENCRYPTED_FIELDS),
+		payout_method: null,
+		payout_account_number: null,
+		payout_account_name: null,
+	};
 };
 
 const fetchBalances = async (sellerId) => {

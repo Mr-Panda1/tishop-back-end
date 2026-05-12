@@ -1,8 +1,14 @@
 const { supabase } = require('../db/supabase');
+const { decryptFields } = require('../utils/encryption');
+
+const ADMIN_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone'];
 
 const authenticateAdmin = async (req, res, next) => {
     try {
-        const token = req.cookies.access_token;
+        const cookieToken = req.cookies.access_token;
+        const authHeader = req.headers.authorization;
+        const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        const token = cookieToken || bearerToken;
 
         if (!token) {
             return res.status(401).json({ 
@@ -35,8 +41,10 @@ const authenticateAdmin = async (req, res, next) => {
             });
         }
 
+        const decryptedAdmin = decryptFields(adminData, ADMIN_ENCRYPTED_FIELDS);
+
         // Check if admin is active 
-        if (!adminData.is_active) {
+        if (!decryptedAdmin.is_active) {
             return res.status(403).json({
                 message: 'Forbidden: Your admin account is deactivated. Please contact support.',
                 authenticated: false,
@@ -44,7 +52,7 @@ const authenticateAdmin = async (req, res, next) => {
         }
         // Attach user to request object
         req.user = user;
-        req.admin = adminData;
+        req.admin = decryptedAdmin;
         next();
     } catch (error) {
         console.error("Auth middleware error:", error);

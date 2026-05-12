@@ -6,6 +6,10 @@ const { sendWelcomeEmail } = require('../../../email/seller/welcomeEmail');
 const crypto = require('crypto');
 const { validatePassword } = require('../../../utils/passwordValidator');
 const authenticateUser = require('../../../middlewares/authMiddleware');
+const { encryptFields, decryptFields } = require('../../../utils/encryption');
+
+const USER_ENCRYPTED_FIELDS = ['first_name', 'last_name'];
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
 
 // Seller login route 
 // POST /api/seller/login 
@@ -184,17 +188,18 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
 
         console.log('Step 3: Auth user created, ID:', data.user.id);
         console.log('Step 4: Inserting into users table...');
+        const userPayload = encryptFields({
+            id: data.user.id,
+            first_name,
+            last_name,
+            email,
+            role: 'seller'
+        }, USER_ENCRYPTED_FIELDS);
+
         // Insert seller details into 'users' table 
         const { error: userError } = await supabaseAdmin
         .from('users')
-        .insert([
-            { 
-                id: data.user.id,
-                first_name, 
-                last_name, 
-                email, 
-                role: 'seller' }
-        ])
+        .insert([userPayload])
         .select()
         .single();
 
@@ -211,15 +216,17 @@ router.post('/seller/signup', authLimiter, async (req, res) => {
         }
 
         console.log('Step 5: Inserting into sellers table...');
+                const sellerPayload = encryptFields({
+                        user_id: data.user.id,
+                        first_name,
+                        last_name,
+                        email,
+                }, SELLER_ENCRYPTED_FIELDS);
+
         // Add the user to sellers, shops, and balances tables
         const { data: sellerData, error: sellerError } = await supabaseAdmin
         .from('sellers')
-        .insert({ 
-            user_id: data.user.id,
-            first_name,
-            last_name,
-            email,
-          })
+                .insert(sellerPayload)
         .select('id')
         .single();
 
@@ -326,13 +333,15 @@ router.patch('/seller/profile', authenticateUser, async (req, res) => {
             return res.status(400).json({ message: 'Le prénom ou le nom est trop long.' });
         }
 
+        const encryptedUserUpdate = encryptFields({
+            first_name,
+            last_name,
+            updated_at: new Date().toISOString(),
+        }, USER_ENCRYPTED_FIELDS);
+
         const { error: userUpdateError } = await supabase
             .from('users')
-            .update({
-                first_name,
-                last_name,
-                updated_at: new Date().toISOString(),
-            })
+            .update(encryptedUserUpdate)
             .eq('id', userId);
 
         if (userUpdateError) {
@@ -342,11 +351,11 @@ router.patch('/seller/profile', authenticateUser, async (req, res) => {
 
         const { error: sellerUpdateError } = await supabase
             .from('sellers')
-            .update({
+            .update(encryptFields({
                 first_name,
                 last_name,
                 updated_at: new Date().toISOString(),
-            })
+            }, SELLER_ENCRYPTED_FIELDS))
             .eq('user_id', userId);
 
         if (sellerUpdateError) {
@@ -365,9 +374,11 @@ router.patch('/seller/profile', authenticateUser, async (req, res) => {
             return res.status(500).json({ message: 'Profil mis à jour, mais impossible de récupérer les données.' });
         }
 
+        const decryptedUser = decryptFields(updatedUser, USER_ENCRYPTED_FIELDS);
+
         return res.status(200).json({
             message: 'Profil mis à jour avec succès.',
-            user: updatedUser,
+            user: decryptedUser,
         });
     } catch (error) {
         console.error('Profile update request error:', error);

@@ -5,7 +5,7 @@ const { generalLimiter } = require('../../middlewares/limit');
 const upload = require('../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const crypto = require('crypto');
-const { encryptFile, hashFile } = require('../../utils/encryption');
+const { encryptFile, hashFile, encryptFields, decryptFields } = require('../../utils/encryption');
 const {
     sendCustomerOrderPlacedEmail,
     sendSellerNewOrderEmail,
@@ -18,6 +18,17 @@ const { getAdminNotificationEmails } = require('../../email/notifications/adminR
 const MANUAL_PAYMENT_BUCKET = 'customer_payment_proof';
 const PAYMENT_PROOF_IMAGE_WIDTH = 1200;
 const PAYMENT_PROOF_IMAGE_QUALITY = 80;
+const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
+const ORDER_ENCRYPTED_FIELDS = [
+    'customer_name',
+    'customer_phone',
+    'landmark',
+    'manual_payment_reference',
+    'manual_payment_sender_phone',
+    'manual_payment_screenshot_name',
+];
+
+const decryptOrder = (order) => decryptFields(order, ORDER_ENCRYPTED_FIELDS);
 
 const buildOrderNumber = () => {
     const now = new Date();
@@ -336,36 +347,38 @@ router.post('/create-order', generalLimiter, async (req, res) => {
         }
 
         const orderNumber = buildOrderNumber();
+        const orderInsertPayload = encryptFields({
+            order_number: orderNumber,
+            customer_id: null,
+            customer_name: customerName,
+            customer_email: customerEmail,
+            customer_phone: customerPhone,
+            department_id: departmentId,
+            arrondissement_id: arrondissementId,
+            commune_id: communeId,
+            neighborhood: neighborhood || null,
+            landmark,
+            total_amount: totalAmount,
+            status: 'pending',
+            payment_method: paymentMethod,
+            manual_payment_reference: paymentMethod === 'manual' ? String(manualPaymentProof.transactionRef).trim() : null,
+            manual_payment_sender_phone: paymentMethod === 'manual' ? String(manualPaymentProof.senderPhone).trim() : null,
+            manual_payment_screenshot_name: paymentMethod === 'manual'
+                ? (manualPaymentProof?.paymentProof?.originalName
+                    ? String(manualPaymentProof.paymentProof.originalName).trim()
+                    : (manualPaymentProof.screenshotName ? String(manualPaymentProof.screenshotName).trim() : null))
+                : null,
+            manual_payment_submitted_at: manualPaymentSubmittedAt,
+            manual_payment_proof_path: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.path || null) : null,
+            manual_payment_proof_iv: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.iv || null) : null,
+            manual_payment_proof_auth_tag: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.authTag || null) : null,
+            manual_payment_proof_hash: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.hash || null) : null,
+            manual_payment_proof_mime_type: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.mimeType || null) : null
+        }, ORDER_ENCRYPTED_FIELDS);
+
         const { data: orderData, error: orderError } = await supabase
             .from('orders')
-            .insert([{
-                order_number: orderNumber,
-                customer_id: null,
-                customer_name: customerName,
-                customer_email: customerEmail,
-                customer_phone: customerPhone,
-                department_id: departmentId,
-                arrondissement_id: arrondissementId,
-                commune_id: communeId,
-                neighborhood: neighborhood || null,
-                landmark,
-                total_amount: totalAmount,
-                status: 'pending',
-                payment_method: paymentMethod,
-                manual_payment_reference: paymentMethod === 'manual' ? String(manualPaymentProof.transactionRef).trim() : null,
-                manual_payment_sender_phone: paymentMethod === 'manual' ? String(manualPaymentProof.senderPhone).trim() : null,
-                manual_payment_screenshot_name: paymentMethod === 'manual'
-                    ? (manualPaymentProof?.paymentProof?.originalName
-                        ? String(manualPaymentProof.paymentProof.originalName).trim()
-                        : (manualPaymentProof.screenshotName ? String(manualPaymentProof.screenshotName).trim() : null))
-                    : null,
-                manual_payment_submitted_at: manualPaymentSubmittedAt,
-                manual_payment_proof_path: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.path || null) : null,
-                manual_payment_proof_iv: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.iv || null) : null,
-                manual_payment_proof_auth_tag: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.authTag || null) : null,
-                manual_payment_proof_hash: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.hash || null) : null,
-                manual_payment_proof_mime_type: paymentMethod === 'manual' ? (manualPaymentProof?.paymentProof?.mimeType || null) : null
-            }])
+            .insert([orderInsertPayload])
             .select()
             .single();
 
@@ -462,7 +475,7 @@ router.post('/create-order', generalLimiter, async (req, res) => {
             if (sellersError) {
                 console.error('Error fetching sellers for notification emails:', sellersError);
             } else {
-                sellersById = new Map((sellers || []).map(seller => [seller.id, seller]));
+                sellersById = new Map((sellers || []).map(seller => [seller.id, decryptFields(seller, SELLER_ENCRYPTED_FIELDS)]));
             }
         }
 
@@ -829,11 +842,13 @@ router.post('/cancel/:sellerOrderId', generalLimiter, async (req, res) => {
         }
 
         // Verify ownership via customer email on parent order
-        const { data: parentOrder, error: parentOrderError } = await supabaseAdmin
+        const { data: parentOrderRaw, error: parentOrderError } = await supabaseAdmin
             .from('orders')
             .select('id, customer_email, customer_name, order_number, total_amount')
             .eq('id', sellerOrder.order_id)
             .maybeSingle();
+
+        const parentOrder = parentOrderRaw ? decryptOrder(parentOrderRaw) : parentOrderRaw;
 
         if (parentOrderError || !parentOrder) {
             return res.status(404).json({ message: 'Commande introuvable' });
@@ -912,8 +927,9 @@ router.post('/cancel/:sellerOrderId', generalLimiter, async (req, res) => {
                     .eq('id', sellerOrder.seller_id)
                     .maybeSingle();
                 if (!sellerDataError && sellerData) {
-                    sellerEmail = sellerData.email;
-                    sellerName = `${sellerData.first_name || ''} ${sellerData.last_name || ''}`.trim() || sellerName;
+                    const decryptedSeller = decryptFields(sellerData, SELLER_ENCRYPTED_FIELDS);
+                    sellerEmail = decryptedSeller.email;
+                    sellerName = `${decryptedSeller.first_name || ''} ${decryptedSeller.last_name || ''}`.trim() || sellerName;
                 }
 
                 await sendCustomerCancelledToCustomer({
@@ -953,11 +969,13 @@ router.get('/:orderId', generalLimiter, async (req, res) => {
         const { orderId } = req.params;
 
         // Fetch order
-        const { data: order, error: orderError } = await supabase
+        const { data: orderRaw, error: orderError } = await supabase
             .from('orders')
             .select('*')
             .eq('id', orderId)
             .maybeSingle();
+
+        const order = orderRaw ? decryptOrder(orderRaw) : orderRaw;
 
         if (orderError) {
             console.error('Error fetching order:', orderError);
