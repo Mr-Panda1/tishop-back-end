@@ -4,44 +4,49 @@ const app = express();
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
+const isProduction = process.env.NODE_ENV === 'production';
+const enableDebugLogs = !isProduction && process.env.DEBUG_HTTP !== 'false';
+
 // Trust proxy
 app.set('trust proxy', 1); 
 
-// Log requests
-app.use((req, res, next) => {
-    console.log('═'.repeat(80));
-    console.log('🔵 Incoming request:', {
-        method: req.method,
-        url: req.url,
-        path: req.path,
-        contentType: req.get('Content-Type'),
-        origin: req.get('origin')
+if (enableDebugLogs) {
+    app.use((req, res, next) => {
+        console.log('═'.repeat(80));
+        console.log('🔵 Incoming request:', {
+            method: req.method,
+            url: req.url,
+            path: req.path,
+            contentType: req.get('Content-Type'),
+            origin: req.get('origin')
+        });
+        if (req.method === 'POST' && req.body) {
+            console.log('📝 Request body keys:', Object.keys(req.body));
+        }
+        next();
     });
-    if (req.method === 'POST' && req.body) {
-        console.log('📝 Request body keys:', Object.keys(req.body));
-    }
-    next();
-});
+}
 
 // Body parser with increased limits for mobile browsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Debug middleware for request body (helps diagnose mobile browser issues)
-app.use((req, res, next) => {
-    if (req.method === 'POST' && req.path.includes('signup')) {
-        console.log('Signup request received:', {
-            method: req.method,
-            path: req.path,
-            contentType: req.get('Content-Type'),
-            bodyExists: !!req.body,
-            bodyKeys: req.body ? Object.keys(req.body) : [],
-            userAgent: req.get('User-Agent')
-        });
-    }
-    next();
-});
+if (enableDebugLogs) {
+    app.use((req, res, next) => {
+        if (req.method === 'POST' && req.path.includes('signup')) {
+            console.log('Signup request received:', {
+                method: req.method,
+                path: req.path,
+                contentType: req.get('Content-Type'),
+                bodyExists: !!req.body,
+                bodyKeys: req.body ? Object.keys(req.body) : [],
+                userAgent: req.get('User-Agent')
+            });
+        }
+        next();
+    });
+}
 
 // CORS configuration
 const allowedOrigins = [
@@ -63,7 +68,9 @@ const allowedOrigins = [
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
-            console.log('✅ CORS allowed for origin:', origin || '[no origin - same-site]');
+            if (enableDebugLogs) {
+                console.log('✅ CORS allowed for origin:', origin || '[no origin - same-site]');
+            }
             callback(null, true);
         } else {
             console.warn('❌ CORS blocked origin:', origin);
@@ -122,7 +129,7 @@ app.use('/api/shop', require('./routes/shop/shopPaymentMethods'));
 // customer
 // app.use('/api/customer/auth', require('./routes/customers/auth/auth'));
 app.use('/customer/shop/category', require('./routes/customers/category'));
-// app.use('/customer/shop/product', require('./routes/customers/products'));
+app.use('/customer/shop/product', require('./routes/sellers/shop/products'));
 app.use('/customer/orders', require('./routes/customers/orders'));
 
 // Admin 

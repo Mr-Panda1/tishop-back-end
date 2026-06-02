@@ -143,25 +143,72 @@ async function main() {
         }
     }
 
-    const { error: deleteProductImagesError } = await supabaseAdmin
-        .from('product_images')
-        .delete()
+    // Split products into: those referenced by orders (must be archived) vs those that can be deleted
+    const { data: referencedItems, error: referencedError } = await supabaseAdmin
+        .from('order_items')
+        .select('product_id')
         .in('product_id', productIds);
 
-    if (deleteProductImagesError) {
-        throw new Error(`Unable to delete product images: ${deleteProductImagesError.message}`);
+    if (referencedError) {
+        throw new Error(`Unable to check order references: ${referencedError.message}`);
     }
 
-    const { error: deleteProductsError } = await supabaseAdmin
-        .from('products')
-        .delete()
-        .in('id', productIds);
+    const referencedIds = new Set((referencedItems || []).map((r) => r.product_id));
+    const idsToArchive = productIds.filter((id) => referencedIds.has(id));
+    const idsToDelete = productIds.filter((id) => !referencedIds.has(id));
 
-    if (deleteProductsError) {
-        throw new Error(`Unable to delete products: ${deleteProductsError.message}`);
+    // Archive products that are linked to orders
+    if (idsToArchive.length > 0) {
+        const { error: archiveError } = await supabaseAdmin
+            .from('products')
+            .update({ status: 'draft' })
+            .in('id', idsToArchive);
+
+        if (archiveError) {
+            throw new Error(`Unable to archive products linked to orders: ${archiveError.message}`);
+        }
+
+        console.log(`Archived (linked to orders): ${idsToArchive.length}`);
     }
 
-    for (const pathsBatch of chunk(storagePaths, 100)) {
+    // Delete products with no order references
+    if (idsToDelete.length > 0) {
+        const imageIdsToDelete = (productImages || [])
+            .filter((img) => idsToDelete.includes(img.product_id))
+            .map((img) => img.product_id);
+
+        if (imageIdsToDelete.length > 0) {
+            const { error: deleteProductImagesError } = await supabaseAdmin
+                .from('product_images')
+                .delete()
+                .in('product_id', idsToDelete);
+
+            if (deleteProductImagesError) {
+                throw new Error(`Unable to delete product images: ${deleteProductImagesError.message}`);
+            }
+        }
+
+        const { error: deleteProductsError } = await supabaseAdmin
+            .from('products')
+            .delete()
+            .in('id', idsToDelete);
+
+        if (deleteProductsError) {
+            throw new Error(`Unable to delete products: ${deleteProductsError.message}`);
+        }
+
+        console.log(`Deleted: ${idsToDelete.length}`);
+    }
+
+    // Remove storage objects only for deleted (not archived) products
+    const deletedProductImageUrls = (productImages || [])
+        .filter((img) => idsToDelete.includes(img.product_id))
+        .map((img) => extractStoragePathFromUrl(img.image_url))
+        .filter(Boolean);
+
+    const storagePathsToRemove = Array.from(new Set(deletedProductImageUrls));
+
+    for (const pathsBatch of chunk(storagePathsToRemove, 100)) {
         const { error: removeStorageError } = await supabaseAdmin
             .storage
             .from(BUCKET_NAME)
@@ -172,7 +219,7 @@ async function main() {
         }
     }
 
-    console.log('Cleanup complete. Seeded demo products were removed.');
+    console.log('Cleanup complete.');
 }
 
 main()

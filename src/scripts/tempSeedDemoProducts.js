@@ -6,7 +6,7 @@ const { supabaseAdmin } = require('../db/supabase');
 
 const BUCKET_NAME = 'sellers_public';
 const DEFAULT_IMAGE_DIR = path.resolve(__dirname, '../../../products');
-const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']);
+const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 function parseArgs(argv) {
     const args = {};
@@ -31,18 +31,36 @@ function parseArgs(argv) {
     return args;
 }
 
-function titleFromFilename(fileName) {
-    const noExt = fileName.replace(path.extname(fileName), '');
-    const cleaned = noExt
-        .replace(/[_~]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+const DEMO_PRODUCT_NAMES = [
+    'Bouquet Cire Parfumée Rose & Jasmin',
+    'Bouquet Wax Melt Vanille Douce',
+    'Bouquet Cire Fondue Lavande & Eucalyptus',
+    'Bouquet Wax Melt Fleurs d\'Oranger',
+    'Bouquet Cire Parfumée Musc Blanc',
+    'Bouquet Wax Melt Citron & Menthe',
+    'Bouquet Cire Fondue Pivoine & Rose',
+    'Bouquet Wax Melt Coco Tropical',
+    'Bouquet Cire Parfumée Santal & Bois',
+    'Bouquet Wax Melt Hibiscus & Fraise',
+    'Bouquet Cire Fondue Cannelle & Épices',
+    'Bouquet Wax Melt Magnolia Frais',
+    'Bouquet Cire Parfumée Ambre & Vanille',
+    'Bouquet Wax Melt Jasmin Étoilé',
+    'Bouquet Cire Fondue Ylang & Gardénia',
+    'Bouquet Wax Melt Noix de Coco & Lime',
+    'Bouquet Cire Parfumée Freesia & Muguet',
+    'Bouquet Wax Melt Pomme & Cannelle',
+    'Bouquet Cire Fondue Cèdre & Vétiver',
+    'Bouquet Wax Melt Lilas Printanier',
+    'Bouquet Cire Parfumée Pêche & Miel',
+    'Bouquet Wax Melt Caramel & Sucre',
+    'Bouquet Cire Fondue Citrus & Basilic',
+    'Bouquet Wax Melt Orchidée Sauvage',
+    'Bouquet Cire Parfumée Boisé & Ambré',
+];
 
-    if (!cleaned) {
-        return 'Produit Demo';
-    }
-
-    return cleaned.slice(0, 80);
+function titleFromFilename(_fileName, index) {
+    return DEMO_PRODUCT_NAMES[index % DEMO_PRODUCT_NAMES.length];
 }
 
 async function findImageFiles(imageDir) {
@@ -60,21 +78,42 @@ async function resolveShopId(shopIdArg) {
         return shopIdArg;
     }
 
-    const { data, error } = await supabaseAdmin
+    const { data: shops, error: shopsError } = await supabaseAdmin
         .from('shops')
-        .select('id')
-        .limit(1)
-        .maybeSingle();
+        .select('id, is_live, seller_id')
+        .eq('is_live', true)
+        .order('created_at', { ascending: true });
 
-    if (error) {
-        throw new Error(`Unable to fetch a shop: ${error.message}`);
+    if (shopsError) {
+        throw new Error(`Unable to fetch shops: ${shopsError.message}`);
     }
 
-    if (!data?.id) {
-        throw new Error('No shop found. Provide --shopId <uuid>.');
+    const liveShops = (shops || []).filter((shop) => shop.id && shop.seller_id);
+
+    if (liveShops.length === 0) {
+        throw new Error('No live shop found. Provide --shopId <uuid>.');
     }
 
-    return data.id;
+    const sellerIds = Array.from(new Set(liveShops.map((shop) => shop.seller_id)));
+
+    const { data: kycDocs, error: kycError } = await supabaseAdmin
+        .from('kyc_documents')
+        .select('seller_id, status')
+        .in('seller_id', sellerIds)
+        .eq('status', 'approved');
+
+    if (kycError) {
+        throw new Error(`Unable to fetch approved KYC documents: ${kycError.message}`);
+    }
+
+    const approvedSellerIds = new Set((kycDocs || []).map((doc) => doc.seller_id));
+    const eligibleShop = liveShops.find((shop) => approvedSellerIds.has(shop.seller_id));
+
+    if (!eligibleShop?.id) {
+        throw new Error('No live shop with approved KYC found. Provide --shopId <uuid>.');
+    }
+
+    return eligibleShop.id;
 }
 
 async function resolveCategoryId(categoryIdArg) {
@@ -163,8 +202,7 @@ async function main() {
         const fileName = targetFiles[i];
         const sourcePath = path.join(imageDir, fileName);
 
-        const baseTitle = titleFromFilename(fileName);
-        const productName = `${baseTitle} (Demo ${i + 1})`;
+        const productName = titleFromFilename(fileName, i);
         const price = 500 + (i % 12) * 125;
         const stock = 3 + (i % 10);
 

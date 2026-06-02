@@ -42,5 +42,7 @@ if (!env.supabaseServiceRoleKey) {
     process.exit(1);
 }
 
-console.log('Environment variables validated successfully');
+if (process.env.NODE_ENV !== 'production') {
+    console.log('Environment variables validated successfully');
+}
 module.exports = env;
