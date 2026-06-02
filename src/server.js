@@ -136,6 +136,9 @@ app.use('/customer/orders', require('./routes/customers/orders'));
 app.use('/api', require('./routes/admins/auth'));
 app.use('/api', require('./routes/admins/kyc'));
 app.use('/api', require('./routes/admins/order'));
+app.use('/api', require('./routes/admins/analytics'));
+app.use('/api', require('./routes/admins/liveUsers'));
+app.use('/api', require('./routes/analytics/events'));
 app.use('/api/chat', require('./routes/chat/messages'));
 app.use('/api/middleware', require('./middlewares/verifyAdmin'));
 

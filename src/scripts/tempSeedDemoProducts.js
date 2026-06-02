@@ -6,6 +6,7 @@ const { supabaseAdmin } = require('../db/supabase');
 
 const BUCKET_NAME = 'sellers_public';
 const DEFAULT_IMAGE_DIR = path.resolve(__dirname, '../../../products');
+const DEFAULT_CATEGORY_ID = 'bc6ef843-abc3-448b-8200-f62755742a09';
 const SUPPORTED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp']);
 
 function parseArgs(argv) {
@@ -119,6 +120,10 @@ async function resolveShopId(shopIdArg) {
 async function resolveCategoryId(categoryIdArg) {
     if (categoryIdArg) {
         return categoryIdArg;
+    }
+
+    if (DEFAULT_CATEGORY_ID) {
+        return DEFAULT_CATEGORY_ID;
     }
 
     const { data, error } = await supabaseAdmin
