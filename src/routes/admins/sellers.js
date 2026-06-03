@@ -7,8 +7,8 @@ const { decryptFields } = require('../../utils/encryption');
 const SELLER_ENCRYPTED_FIELDS = ['first_name', 'last_name', 'phone', 'email'];
 
 const deriveSellerStatus = (seller) => {
-    if (seller?.is_active === false) return 'suspended';
     if (seller?.verification_status === 'approved' && seller?.is_verified) return 'active';
+    if (seller?.verification_status === 'rejected') return 'suspended';
     return 'pending';
 };
 
@@ -19,7 +19,7 @@ router.get('/admin/sellers',
         try {
             const { data: sellers, error: sellersError } = await supabase
                 .from('sellers')
-                .select('id, user_id, first_name, last_name, email, phone, is_verified, verification_status, is_active, created_at')
+                .select('id, user_id, first_name, last_name, email, phone, is_verified, verification_status, created_at')
                 .order('created_at', { ascending: false });
 
             if (sellersError) {
@@ -104,7 +104,7 @@ router.get('/admin/sellers',
                     totalOrders: stats.totalOrders,
                     totalRevenue: stats.totalRevenue,
                     verificationStatus: seller.verification_status || 'pending',
-                    isActive: seller.is_active !== false,
+                    isActive: status === 'active',
                 };
             });
 
