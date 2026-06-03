@@ -2,7 +2,18 @@ const express = require('express');
 const router = express.Router();
 const { supabaseAdmin } = require('../../db/supabase');
 
-const ALLOWED_EVENTS = new Set(['page_view', 'heartbeat', 'link_click', 'product_view', 'add_to_cart', 'checkout_started', 'order_paid']);
+const ALLOWED_EVENTS = new Set([
+    'page_view',
+    'heartbeat',
+    'link_click',
+    'product_view',
+    'add_to_cart',
+    'checkout_started',
+    'order_paid',
+    'signup_started',
+    'signup_completed',
+    'seller_cta_clicked',
+]);
 const ALLOWED_PLATFORMS = new Set(['website', 'pwa', 'seller']);
 
 const safeString = (value, max = 255) => {

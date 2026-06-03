@@ -35,7 +35,7 @@ const safeCount = async ({ table, filters = [] }) => {
 const getEventRows = async (sinceIso) => {
     const { data, error } = await supabase
         .from('app_events')
-        .select('event_type, platform, source, utm_campaign, session_id, user_id, created_at')
+        .select('event_type, platform, source, utm_campaign, session_id, user_id, path, metadata, created_at')
         .gte('created_at', sinceIso);
 
     if (error) {
@@ -46,6 +46,132 @@ const getEventRows = async (sinceIso) => {
     }
 
     return data || [];
+};
+
+const isHomepagePath = (path) => {
+    if (!path) return false;
+    const normalized = String(path).trim();
+    return normalized === '/' || normalized.startsWith('/?');
+};
+
+const isSignupPath = (path) => {
+    if (!path) return false;
+    const normalized = String(path).trim().toLowerCase();
+    return normalized.startsWith('/auth/signup');
+};
+
+const isSellerCtaHref = (href) => {
+    if (!href) return false;
+    const normalized = String(href).trim().toLowerCase();
+    return normalized.includes('seller.tishop.co') && normalized.includes('/auth/signup');
+};
+
+const countUniqueSessions = (rows, predicate) => {
+    const sessions = new Set();
+    rows.forEach((row) => {
+        if (!predicate(row)) return;
+        const key = row.session_id || row.user_id;
+        if (key) sessions.add(key);
+    });
+    return sessions.size;
+};
+
+const buildFunnels = (rows) => {
+    const isSellerPlatform = (platform) => {
+        const normalized = String(platform || '').toLowerCase();
+        return normalized === 'seller' || normalized === 'website';
+    };
+
+    const sellerSteps = [
+        {
+            key: 'homepage',
+            label: 'Seller homepage',
+            users: countUniqueSessions(rows, (row) => isSellerPlatform(row.platform) && row.event_type === 'page_view' && isHomepagePath(row.path)),
+        },
+        {
+            key: 'become_seller_click',
+            label: 'Become seller click (PWA)',
+            users: countUniqueSessions(rows, (row) => {
+                if (row.platform !== 'pwa') return false;
+                if (row.event_type === 'seller_cta_clicked') return true;
+                if (row.event_type !== 'link_click') return false;
+                return isSellerCtaHref(row.metadata?.href);
+            }),
+        },
+        {
+            key: 'signup_started',
+            label: 'Signup started',
+            users: countUniqueSessions(rows, (row) =>
+                isSellerPlatform(row.platform) && (
+                    row.event_type === 'signup_started' ||
+                    (row.event_type === 'page_view' && isSignupPath(row.path))
+                )
+            ),
+        },
+        {
+            key: 'signup_completed',
+            label: 'Signup completed',
+            users: countUniqueSessions(rows, (row) => isSellerPlatform(row.platform) && row.event_type === 'signup_completed'),
+        },
+    ];
+
+    const buyerSteps = [
+        {
+            key: 'homepage',
+            label: 'Buyer homepage',
+            users: countUniqueSessions(rows, (row) => row.platform === 'pwa' && row.event_type === 'page_view' && isHomepagePath(row.path)),
+        },
+        {
+            key: 'product_view',
+            label: 'Product viewed',
+            users: countUniqueSessions(rows, (row) => row.platform === 'pwa' && row.event_type === 'product_view'),
+        },
+        {
+            key: 'add_to_cart',
+            label: 'Added to cart',
+            users: countUniqueSessions(rows, (row) => row.platform === 'pwa' && row.event_type === 'add_to_cart'),
+        },
+        {
+            key: 'checkout_started',
+            label: 'Checkout started',
+            users: countUniqueSessions(rows, (row) => row.platform === 'pwa' && row.event_type === 'checkout_started'),
+        },
+        {
+            key: 'order_paid',
+            label: 'Order paid',
+            users: countUniqueSessions(rows, (row) => row.platform === 'pwa' && row.event_type === 'order_paid'),
+        },
+    ];
+
+    const withRates = (steps) => {
+        if (!steps.length) return [];
+
+        return steps.map((step, index) => {
+            const previousUsers = index > 0 ? steps[index - 1].users : null;
+            const firstUsers = steps[0].users;
+
+            const fromPreviousRate = previousUsers && previousUsers > 0
+                ? Number(((step.users / previousUsers) * 100).toFixed(2))
+                : index === 0
+                    ? 100
+                    : 0;
+
+            const fromStartRate = firstUsers > 0
+                ? Number(((step.users / firstUsers) * 100).toFixed(2))
+                : 0;
+
+            return {
+                ...step,
+                from_previous_rate: fromPreviousRate,
+                from_start_rate: fromStartRate,
+            };
+        });
+    };
+
+    return {
+        seller: withRates(sellerSteps),
+        buyer: withRates(buyerSteps),
+    };
 };
 
 const buildAggregates = (rows) => {
@@ -163,6 +289,7 @@ router.get('/admin/analytics/summary',
 
             const events = await getEventRows(sinceIso);
             const aggregates = buildAggregates(events);
+            const funnels = buildFunnels(events);
 
             const sessionCount = aggregates.sessions || orderRows.length;
             const orderCount = orderRows.length;
@@ -184,6 +311,7 @@ router.get('/admin/analytics/summary',
                     },
                     sources: aggregates.sources,
                     campaigns: aggregates.campaigns,
+                    funnels,
                 });
         } catch (error) {
             console.error('Admin analytics summary error:', error);
