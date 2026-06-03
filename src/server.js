@@ -60,6 +60,7 @@ const allowedOrigins = [
     'https://tishop.co',
     'https://www.tishop.co',
     'https://seller.tishop.co',
+    'https://www.seller.tishop.co',
     'https://pay.tishop.co',
     'https://admin.tishop.co',
     'https://tishop-admin.vercel.app'
@@ -135,6 +136,7 @@ app.use('/customer/orders', require('./routes/customers/orders'));
 // Admin 
 app.use('/api', require('./routes/admins/auth'));
 app.use('/api', require('./routes/admins/kyc'));
+app.use('/api', require('./routes/admins/sellers'));
 app.use('/api', require('./routes/admins/order'));
 app.use('/api', require('./routes/admins/analytics'));
 app.use('/api', require('./routes/admins/liveUsers'));

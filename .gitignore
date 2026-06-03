@@ -41,6 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/scripts
+/db
 ENCRYPTION_SETUP.md
 form.md
 MONCASH_SETUP.md
