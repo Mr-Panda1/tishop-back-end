@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const authenticateUser = require('../../../middlewares/authMiddleware');
-const { supabase } = require('../../../db/supabase');
+const { supabase: supabaseAdmin } = require('../../../db/supabase');
 const { sellerStoreLimiter, sellerProductLimiter } = require('../../../middlewares/limit');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
@@ -19,7 +19,7 @@ async function collectStorageFilePaths(prefix) {
     let offset = 0;
 
     while (true) {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .storage
             .from(BUCKET_NAME)
             .list(prefix, {
@@ -69,7 +69,7 @@ async function clearProductStoragePrefix(shopId, productId) {
         return;
     }
 
-    const { error: removeError } = await supabase
+    const { error: removeError } = await supabaseAdmin
         .storage
         .from(BUCKET_NAME)
         .remove([...new Set(filePaths)]);
@@ -129,7 +129,7 @@ router.post('/add-product',
             }
 
             // Ensure seller exists in sellers table 
-            const { data: sellerRow, error: sellerFetchError } = await supabase
+            const { data: sellerRow, error: sellerFetchError } = await supabaseAdmin
                 .from('sellers')
                 .select('id')
                 .eq('user_id', user.id)
@@ -145,7 +145,7 @@ router.post('/add-product',
             }
 
             // Fetch existing shop
-            const { data: shopRow, error: shopFetchError } = await supabase
+            const { data: shopRow, error: shopFetchError } = await supabaseAdmin
                 .from('shops')
                 .select('id')
                 .eq('seller_id', sellerRow.id)
@@ -161,7 +161,7 @@ router.post('/add-product',
             }
 
             // Validate that the category exists
-            const { data: categoryRow, error: categoryFetchError } = await supabase
+            const { data: categoryRow, error: categoryFetchError } = await supabaseAdmin
                 .from('categories')
                 .select('id, name, parent_id')
                 .eq('id', category_id.trim())
@@ -178,7 +178,7 @@ router.post('/add-product',
 
             // Insert product record
             const hasVariantsFlag = !!req.body.variants;
-            const { data: productData, error: productInsertError } = await supabase
+            const { data: productData, error: productInsertError } = await supabaseAdmin
                 .from('products')
                 .insert([{
                     shop_id: shopRow.id,
@@ -243,7 +243,7 @@ router.post('/add-product',
                     // All images go to the same product path — product_images is the single source of truth
                     const filePath = `products/${shopRow.id}/${productId}/${uniqueId}.webp`;
 
-                    const { error: uploadError } = await supabase
+                    const { error: uploadError } = await supabaseAdmin
                         .storage
                         .from(BUCKET_NAME)
                         .upload(filePath, webpBuffer, {
@@ -257,7 +257,7 @@ router.post('/add-product',
                         return res.status(500).json({ message: 'Erreur lors du téléchargement des images de produit' });
                     }
 
-                    const { data: { publicUrl } } = supabase
+                    const { data: { publicUrl } } = supabaseAdmin
                         .storage
                         .from(BUCKET_NAME)
                         .getPublicUrl(filePath);
@@ -279,7 +279,7 @@ router.post('/add-product',
 
             let insertedProductImages = [];
             if (productImageRecords.length > 0) {
-                const { data: insertedImgs, error: imageInsertError } = await supabase
+                const { data: insertedImgs, error: imageInsertError } = await supabaseAdmin
                     .from('product_images')
                     .insert(productImageRecords)
                     .select('id, image_url, position');
@@ -308,7 +308,7 @@ router.post('/add-product',
                         low_stock_threshold: v.low_stock_threshold || null
                     }));
 
-                    const { data: variantsInsertData, error: variantsInsertError } = await supabase
+                    const { data: variantsInsertData, error: variantsInsertError } = await supabaseAdmin
                         .from('product_variants')
                         .insert(variantRecords)
                         .select();
@@ -346,7 +346,7 @@ router.post('/add-product',
             }
 
             if (variantImageRecords.length > 0) {
-                const { error: variantImagesInsertError } = await supabase
+                const { error: variantImagesInsertError } = await supabaseAdmin
                     .from('product_variant_images')
                     .insert(variantImageRecords);
 
@@ -375,7 +375,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
         const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
         const parsedOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
-        let query = supabase.from('products').select(
+        let query = supabaseAdmin.from('products').select(
             `*,
             shop:shops(id, name, logo_url, description, created_at, is_live, locations:shop_locations(commune_id), seller:sellers(kyc_documents(status))),
             images:product_images(image_url, position, is_main),
@@ -394,7 +394,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
         query = query.eq('status', 'published');
 
         if (commune_id) {
-            const { data: locationRows, error: locationError } = await supabase
+            const { data: locationRows, error: locationError } = await supabaseAdmin
                 .from('shop_locations')
                 .select('shop_id')
                 .ilike('commune_id', commune_id.trim());
@@ -411,7 +411,7 @@ router.get('/get-products', sellerStoreLimiter, async (req, res) => {
         
         // Filter by parent category (will include all products in subcategories of this parent)
         if (parent_category_id) {
-            const { data: subcategories } = await supabase
+            const { data: subcategories } = await supabaseAdmin
                 .from('categories')
                 .select('id')
                 .or(`id.eq.${parent_category_id},parent_id.eq.${parent_category_id}`);
@@ -489,7 +489,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
     
     try {
         // Find seller by user_id
-        const { data: sellerRow, error: sellerFetchError } = await supabase
+        const { data: sellerRow, error: sellerFetchError } = await supabaseAdmin
             .from('sellers')
             .select('id')
             .eq('user_id', user.id)
@@ -505,7 +505,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
         }
 
         // Get the shop_id using seller.id
-        const { data: shopData, error: shopError } = await supabase
+        const { data: shopData, error: shopError } = await supabaseAdmin
             .from('shops')
             .select('id')
             .eq('seller_id', sellerRow.id)
@@ -525,7 +525,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
         const parsedOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
         // Build query for this seller's shop only
-        let query = supabase.from('products').select(
+        let query = supabaseAdmin.from('products').select(
             `*,
             shop:shops(id, name, logo_url),
             images:product_images(id, image_url, position, is_main),
@@ -543,7 +543,7 @@ router.get('/get-seller-products', sellerStoreLimiter, authenticateUser, async (
         
         // Filter by parent category (will include all products in subcategories of this parent)
         if (parent_category_id) {
-            const { data: subcategories } = await supabase
+            const { data: subcategories } = await supabaseAdmin
                 .from('categories')
                 .select('id')
                 .or(`id.eq.${parent_category_id},parent_id.eq.${parent_category_id}`);
@@ -605,7 +605,7 @@ router.patch('/update-seller-products/:id',
             } = req.body;
 
             // Verify seller owns this product
-            const { data: sellerRow, error: sellerFetchError } = await supabase
+            const { data: sellerRow, error: sellerFetchError } = await supabaseAdmin
                 .from('sellers')
                 .select('id')
                 .eq('user_id', user.id)
@@ -616,7 +616,7 @@ router.patch('/update-seller-products/:id',
             }
 
             // Fetch product and verify ownership
-            const { data: productData, error: productFetchError } = await supabase
+            const { data: productData, error: productFetchError } = await supabaseAdmin
                 .from('products')
                 .select('*, shop:shops(id, seller_id)')
                 .eq('id', productId)
@@ -654,7 +654,7 @@ router.patch('/update-seller-products/:id',
                     return res.status(400).json({ message: 'La catégorie est requise' });
                 }
                 // Validate category exists
-                const { data: categoryData } = await supabase
+                const { data: categoryData } = await supabaseAdmin
                     .from('categories')
                     .select('id')
                     .eq('id', category_id.trim())
@@ -708,7 +708,7 @@ router.patch('/update-seller-products/:id',
 
             // Update product record if there are changes
             if (Object.keys(updatePayload).length > 0) {
-                const { error: productUpdateError } = await supabase
+                const { error: productUpdateError } = await supabaseAdmin
                     .from('products')
                     .update(updatePayload)
                     .eq('id', productId);
@@ -724,7 +724,7 @@ router.patch('/update-seller-products/:id',
             const existingImageIds = existing_images ? JSON.parse(typeof existing_images === 'string' ? existing_images : JSON.stringify(existing_images)) : [];
 
             // Delete product images not in the existing_images list (always run)
-            const { data: allProductImages } = await supabase
+            const { data: allProductImages } = await supabaseAdmin
                 .from('product_images')
                 .select('id, image_url')
                 .eq('product_id', productId);
@@ -736,13 +736,13 @@ router.patch('/update-seller-products/:id',
                     const urlParts = img.image_url.split('/');
                     if (urlParts.length >= 2) {
                         const storagePath = urlParts.slice(-4).join('/');
-                        await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
+                        await supabaseAdmin.storage.from(BUCKET_NAME).remove([storagePath]);
                     }
                 }
 
                 if (imagesToDelete.length > 0) {
                     const deleteIds = imagesToDelete.map(img => img.id);
-                    await supabase
+                    await supabaseAdmin
                         .from('product_images')
                         .delete()
                         .in('id', deleteIds);
@@ -750,7 +750,7 @@ router.patch('/update-seller-products/:id',
             }
 
             // Count remaining images after deletion to compute correct positions
-            const { count: remainingImageCount } = await supabase
+            const { count: remainingImageCount } = await supabaseAdmin
                 .from('product_images')
                 .select('id', { count: 'exact', head: true })
                 .eq('product_id', productId);
@@ -768,7 +768,7 @@ router.patch('/update-seller-products/:id',
                     const uniqueId = crypto.randomUUID();
                     const filePath = `products/${shopId}/${productId}/${uniqueId}.webp`;
 
-                    const { error: uploadError } = await supabase
+                    const { error: uploadError } = await supabaseAdmin
                         .storage
                         .from(BUCKET_NAME)
                         .upload(filePath, webpBuffer, {
@@ -782,7 +782,7 @@ router.patch('/update-seller-products/:id',
                         return res.status(500).json({ message: 'Erreur lors du téléchargement des images de produit' });
                     }
 
-                    const { data: { publicUrl } } = supabase
+                    const { data: { publicUrl } } = supabaseAdmin
                         .storage
                         .from(BUCKET_NAME)
                         .getPublicUrl(filePath);
@@ -798,7 +798,7 @@ router.patch('/update-seller-products/:id',
             if (uploadedNewFiles.length > 0) {
                 // If there are no remaining images, clear is_main on all (shouldn't exist, but safety)
                 if (basePosition === 0) {
-                    await supabase
+                    await supabaseAdmin
                         .from('product_images')
                         .update({ is_main: false })
                         .eq('product_id', productId);
@@ -811,7 +811,7 @@ router.patch('/update-seller-products/:id',
                     is_main: basePosition === 0 && idx === 0
                 }));
 
-                const { error: imageInsertError } = await supabase
+                const { error: imageInsertError } = await supabaseAdmin
                     .from('product_images')
                     .insert(newImageRecords);
 
@@ -823,7 +823,7 @@ router.patch('/update-seller-products/:id',
 
             // Fetch the full ordered product_images list AFTER all insert/delete operations
             // (needed to resolve variant.images indices to real URLs for product_variant_images)
-            const { data: currentProductImages } = await supabase
+            const { data: currentProductImages } = await supabaseAdmin
                 .from('product_images')
                 .select('id, image_url, position')
                 .eq('product_id', productId)
@@ -849,7 +849,7 @@ router.patch('/update-seller-products/:id',
             const deletedIds = deleted_variant_ids ? JSON.parse(typeof deleted_variant_ids === 'string' ? deleted_variant_ids : JSON.stringify(deleted_variant_ids)) : [];
             if (deletedIds.length > 0) {
                 // Get variant images to delete from storage
-                const { data: variantImagesToDelete } = await supabase
+                const { data: variantImagesToDelete } = await supabaseAdmin
                     .from('product_variant_images')
                     .select('id, image_url')
                     .in('product_variant_id', deletedIds);
@@ -859,19 +859,19 @@ router.patch('/update-seller-products/:id',
                         const urlParts = img.image_url.split('/');
                         if (urlParts.length >= 2) {
                             const storagePath = urlParts.slice(-4).join('/');
-                            await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
+                            await supabaseAdmin.storage.from(BUCKET_NAME).remove([storagePath]);
                         }
                     }
 
                     const imgIds = variantImagesToDelete.map(img => img.id);
-                    await supabase
+                    await supabaseAdmin
                         .from('product_variant_images')
                         .delete()
                         .in('id', imgIds);
                 }
 
                 // Delete variants
-                await supabase
+                await supabaseAdmin
                     .from('product_variants')
                     .delete()
                     .in('id', deletedIds);
@@ -897,7 +897,7 @@ router.patch('/update-seller-products/:id',
                     low_stock_threshold: v.low_stock_threshold || null
                 }));
 
-                const { data: variantsInsertData, error: variantsInsertError } = await supabase
+                const { data: variantsInsertData, error: variantsInsertError } = await supabaseAdmin
                     .from('product_variants')
                     .insert(variantRecords)
                     .select();
@@ -924,7 +924,7 @@ router.patch('/update-seller-products/:id',
                     low_stock_threshold: variant.low_stock_threshold || null
                 };
 
-                const { error: updateError } = await supabase
+                const { error: updateError } = await supabaseAdmin
                     .from('product_variants')
                     .update(variantUpdatePayload)
                     .eq('id', variant.id)
@@ -945,7 +945,7 @@ router.patch('/update-seller-products/:id',
 
             for (const v of allActiveVariants) {
                 // Delete existing variant image assignments
-                await supabase
+                await supabaseAdmin
                     .from('product_variant_images')
                     .delete()
                     .eq('product_variant_id', v.id);
@@ -966,7 +966,7 @@ router.patch('/update-seller-products/:id',
                     .filter(Boolean);
 
                 if (newVariantImageRecords.length > 0) {
-                    const { error: varImgErr } = await supabase
+                    const { error: varImgErr } = await supabaseAdmin
                         .from('product_variant_images')
                         .insert(newVariantImageRecords);
                     if (varImgErr) {
@@ -976,7 +976,7 @@ router.patch('/update-seller-products/:id',
             }
 
             // Fetch updated product with all relations
-            const { data: updatedProduct, error: fetchError } = await supabase
+            const { data: updatedProduct, error: fetchError } = await supabaseAdmin
                 .from('products')
                 .select(
                     `*,
@@ -1016,7 +1016,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
         const productId = req.params.id;
 
         // Verify seller owns this product
-        const { data: sellerRow, error: sellerFetchError } = await supabase
+        const { data: sellerRow, error: sellerFetchError } = await supabaseAdmin
             .from('sellers')
             .select('id')
             .eq('user_id', user.id)
@@ -1026,7 +1026,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
         }
 
         // Fetch product and verify ownership
-        const { data: productData, error: productFetchError } = await supabase
+        const { data: productData, error: productFetchError } = await supabaseAdmin
             .from('products')
             .select('*, shop:shops(id, seller_id)')
             .eq('id', productId)
@@ -1041,7 +1041,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
         }
 
         // Check if product has any orders
-        const { data: orderItems, error: orderCheckError } = await supabase
+        const { data: orderItems, error: orderCheckError } = await supabaseAdmin
             .from('order_items')
             .select('id')
             .eq('product_id', productId)
@@ -1068,7 +1068,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
         }
 
         // get and delete variant images
-        const { data: variantImages, error: variantImagesFetchError } = await supabase
+        const { data: variantImages, error: variantImagesFetchError } = await supabaseAdmin
             .from('product_variant_images')
             .select('id, variant:product_variants!inner(product_id)')
             .eq('variant.product_id', productId);
@@ -1080,7 +1080,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
 
             if (variantImages && variantImages.length > 0) {
                 const imgIds = variantImages.map(img => img.id);
-                const { error: variantImagesDeleteError } = await supabase
+                const { error: variantImagesDeleteError } = await supabaseAdmin
                     .from('product_variant_images')
                     .delete()
                     .in('id', imgIds);
@@ -1092,7 +1092,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
             }
 
             // delete variants
-            const { error: variantsDeleteError } = await supabase
+            const { error: variantsDeleteError } = await supabaseAdmin
                 .from('product_variants')
                 .delete()
                 .eq('product_id', productId);
@@ -1103,7 +1103,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
             }
 
             // get and delete product images
-            const { data: productImages, error: productImagesFetchError } = await supabase
+            const { data: productImages, error: productImagesFetchError } = await supabaseAdmin
                 .from('product_images')
                 .select('id, image_url')
                 .eq('product_id', productId);
@@ -1115,7 +1115,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
 
             if (productImages && productImages.length > 0) {
                 const imgIds = productImages.map(img => img.id);
-                const { error: productImagesDeleteError } = await supabase
+                const { error: productImagesDeleteError } = await supabaseAdmin
                     .from('product_images')
                     .delete()
                     .in('id', imgIds);
@@ -1127,7 +1127,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
             }
 
             // delete product
-            const { error: productDeleteError } = await supabase
+            const { error: productDeleteError } = await supabaseAdmin
                 .from('products')
                 .delete()
                 .eq('id', productId);
@@ -1148,7 +1148,7 @@ router.delete('/delete-seller-products/:id', authenticateUser, sellerProductLimi
 // Fetch product categories
 router.get('/categories', sellerStoreLimiter, async (req, res) => {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
             .from('categories')
             .select('*')
             .order('name', { ascending: true });
