@@ -26,6 +26,18 @@ const sellerStoreLimiter = rateLimit({
     }
 })
 
+// Rate limiter for public product catalog browsing
+const publicCatalogLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 300, // allow bursty scrolling/search browsing in PWA
+    message: 'Trop de requêtes catalogue depuis cette adresse IP, veuillez réessayer après 5 minutes',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        return res.status(429).json({ message: 'Trop de requêtes catalogue depuis cette adresse IP, veuillez réessayer après 5 minutes' });
+    }
+})
+
 // Rate limiter for product create/update/delete (image uploads are resource-intensive)
 const sellerProductLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, // 10 minutes
@@ -78,6 +90,7 @@ const adminLoginLimiter = rateLimit({
 module.exports = {
     authLimiter,
     sellerStoreLimiter,
+    publicCatalogLimiter,
     sellerProductLimiter,
     sellerKYCLimiter,
     generalLimiter,

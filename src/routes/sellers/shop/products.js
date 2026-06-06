@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const authenticateUser = require('../../../middlewares/authMiddleware');
 const { supabase: supabaseAdmin } = require('../../../db/supabase');
-const { sellerStoreLimiter, sellerProductLimiter } = require('../../../middlewares/limit');
+const { sellerStoreLimiter, sellerProductLimiter, publicCatalogLimiter } = require('../../../middlewares/limit');
 const upload = require('../../../middlewares/uploadMiddleware');
 const sharp = require('sharp');
 const { cp } = require('fs');
@@ -368,7 +368,7 @@ router.post('/add-product',
 
     
 // GET /sellers/shop/products GLOBAL - fetch products with filters
-router.get('/get-products', sellerStoreLimiter, async (req, res) => {
+router.get('/get-products', publicCatalogLimiter, async (req, res) => {
     const { productId, shopId, category_id, parent_category_id, commune_id, search, limit = 20, offset = 0 } = req.query;
 
     try {
