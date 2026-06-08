@@ -66,7 +66,7 @@ router.get('/categories-with-products', generalLimiter, async (req, res) => {
             subs: parentIdToSubs[parent.id]
         }));
 
-        return res.json({ categories: result });
+        return res.set('Cache-Control', 'no-store, no-cache, must-revalidate').json({ categories: result });
     } catch (error) {
         return res.status(500).json({ message: 'Erreur serveur interne' });
     }
