@@ -370,6 +370,7 @@ router.post('/add-product',
 // GET /sellers/shop/products GLOBAL - fetch products with filters
 router.get('/get-products', publicCatalogLimiter, async (req, res) => {
     const { productId, shopId, category_id, parent_category_id, commune_id, search, limit = 20, offset = 0 } = req.query;
+    console.log('[get-products] request', { commune_id: commune_id || null, category_id: category_id || null, parent_category_id: parent_category_id || null, search: search || null, limit, offset });
 
     try {
         const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
@@ -441,6 +442,7 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
         const { data, error } = await query.range(parsedOffset, parsedOffset + parsedLimit - 1);
 
         if (error) throw error;
+        console.log(`[get-products] DB returned ${data?.length ?? 0} rows`);
 
         // Filter to only show products from sellers with approved KYC documents and shops that are live
         const filteredProducts = data?.filter(product => {
@@ -474,9 +476,10 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
             };
         });
 
+        console.log(`[get-products] returning ${filteredProducts?.length ?? 0} products after KYC/live filter`);
         return res.json({ products: filteredProducts || [] });
     } catch (error) {
-        console.error('Error fetching products:', error);
+        console.error('[get-products] error:', error);
         return res.status(500).json({ message: 'Erreur serveur interne' });
     }
 })
