@@ -448,7 +448,8 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
         const filteredProducts = data?.filter(product => {
             // Check if shop is live
             if (!product.shop?.is_live) {
-                return false; // Exclude products from offline shops
+                console.log(`[get-products] dropped product ${product.id} (${product.name}) — shop not live (shop_id: ${product.shop_id})`);
+                return false;
             }
 
             // Check for approved KYC documents
@@ -456,9 +457,13 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
                 const hasApprovedKYC = product.shop.seller.kyc_documents.some(
                     doc => doc.status === 'approved'
                 );
+                if (!hasApprovedKYC) {
+                    console.log(`[get-products] dropped product ${product.id} (${product.name}) — no approved KYC (shop_id: ${product.shop_id})`);
+                }
                 return hasApprovedKYC;
             }
-            return false; // Exclude products without seller/kyc_documents info
+            console.log(`[get-products] dropped product ${product.id} (${product.name}) — missing seller/kyc_documents (shop_id: ${product.shop_id})`);
+            return false;
         }).map(product => {
             // Keep only approved kyc_documents in the response
             const approvedDocs = product.shop.seller.kyc_documents.filter(
