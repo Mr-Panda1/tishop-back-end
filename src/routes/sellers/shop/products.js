@@ -378,7 +378,7 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
 
         let query = supabaseAdmin.from('products').select(
             `*,
-            shop:shops(id, name, logo_url, description, created_at, is_live, locations:shop_locations(commune_id), seller:sellers(kyc_documents(status))),
+            shop:shops(id, name, logo_url, description, created_at, is_live, locations:shop_locations(commune_id), seller:sellers(verification_status, kyc_documents(status))),
             images:product_images(image_url, position, is_main),
             variants:product_variants(
                 id, sku, size, size_value, color, attributes, price, stock, is_limited_stock, low_stock_threshold,
@@ -433,56 +433,95 @@ router.get('/get-products', publicCatalogLimiter, async (req, res) => {
                     .map(tag => tag.trim())
                     .filter(Boolean);
 
-                if (searchTags.length > 0) {
+                // Only apply strict tag containment when user explicitly provides tag lists.
+                if (searchTerm.includes(',') && searchTags.length > 0) {
                     query = query.contains('tags', searchTags);
                 }
             }
         }
 
-        const { data, error } = await query.range(parsedOffset, parsedOffset + parsedLimit - 1);
+            query = query
+                .order('created_at', { ascending: false })
+                .order('id', { ascending: false });
 
-        if (error) throw error;
-        console.log(`[get-products] DB returned ${data?.length ?? 0} rows`);
+        const hasApprovedKyc = (seller) => {
+            if (!seller) return false;
 
-        // Filter to only show products from sellers with approved KYC documents and shops that are live
-        const filteredProducts = data?.filter(product => {
-            // Check if shop is live
-            if (!product.shop?.is_live) {
-                console.log(`[get-products] dropped product ${product.id} (${product.name}) — shop not live (shop_id: ${product.shop_id})`);
-                return false;
-            }
+            // Seller profile status is the canonical approval source in admin KYC flows.
+            if (seller.verification_status === 'approved') return true;
 
-            // Check for approved KYC documents
-            if (product.shop?.seller?.kyc_documents) {
-                const hasApprovedKYC = product.shop.seller.kyc_documents.some(
+            const docs = Array.isArray(seller.kyc_documents) ? seller.kyc_documents : [];
+            return docs.some((doc) => doc?.status === 'approved');
+        };
+
+
+        // Paginate after eligibility filtering to avoid random empty pages when ineligible rows dominate a DB slice.
+        const targetCount = parsedOffset + parsedLimit;
+        const batchSize = Math.max(parsedLimit * 3, 100);
+        const maxScannedRows = 5000;
+        let scannedRows = 0;
+        let dbOffset = 0;
+        let dbRowsRead = 0;
+        const eligibleProducts = [];
+
+        while (eligibleProducts.length < targetCount && scannedRows < maxScannedRows) {
+            const { data: batchRows, error: batchError } = await query.range(dbOffset, dbOffset + batchSize - 1);
+
+            if (batchError) throw batchError;
+            const rows = Array.isArray(batchRows) ? batchRows : [];
+            if (rows.length === 0) break;
+
+            dbRowsRead += rows.length;
+
+            rows.forEach((product) => {
+                // Check if shop is live
+                if (!product.shop?.is_live) {
+                    console.log(`[get-products] dropped product ${product.id} (${product.name}) — shop not live (shop_id: ${product.shop_id})`);
+                    return;
+                }
+
+                // Check for approved KYC status/documents
+                const approvedKyc = hasApprovedKyc(product.shop?.seller);
+                if (!approvedKyc) {
+                    const verificationStatus = product.shop?.seller?.verification_status || 'unknown';
+                    console.log(`[get-products] dropped product ${product.id} (${product.name}) — no approved KYC (shop_id: ${product.shop_id}, verification_status: ${verificationStatus})`);
+                    return;
+                }
+
+                eligibleProducts.push(product);
+            });
+
+            scannedRows += rows.length;
+            dbOffset += rows.length;
+
+            if (rows.length < batchSize) break;
+        }
+
+        const pagedProducts = eligibleProducts
+            .slice(parsedOffset, parsedOffset + parsedLimit)
+            .map((product) => {
+                // Keep only approved kyc_documents in the response
+                const kycDocs = Array.isArray(product.shop?.seller?.kyc_documents)
+                    ? product.shop.seller.kyc_documents
+                    : [];
+                const approvedDocs = kycDocs.filter(
                     doc => doc.status === 'approved'
                 );
-                if (!hasApprovedKYC) {
-                    console.log(`[get-products] dropped product ${product.id} (${product.name}) — no approved KYC (shop_id: ${product.shop_id})`);
-                }
-                return hasApprovedKYC;
-            }
-            console.log(`[get-products] dropped product ${product.id} (${product.name}) — missing seller/kyc_documents (shop_id: ${product.shop_id})`);
-            return false;
-        }).map(product => {
-            // Keep only approved kyc_documents in the response
-            const approvedDocs = product.shop.seller.kyc_documents.filter(
-                doc => doc.status === 'approved'
-            );
-            return {
-                ...product,
-                shop: {
-                    ...product.shop,
-                    seller: {
-                        ...product.shop.seller,
-                        kyc_documents: approvedDocs
-                    }
-                }
-            };
-        });
 
-        console.log(`[get-products] returning ${filteredProducts?.length ?? 0} products after KYC/live filter`);
-        return res.json({ products: filteredProducts || [] });
+                return {
+                    ...product,
+                    shop: {
+                        ...product.shop,
+                        seller: {
+                            ...product.shop.seller,
+                            kyc_documents: approvedDocs
+                        }
+                    }
+                };
+            });
+
+        console.log(`[get-products] DB scanned ${dbRowsRead} rows, eligible ${eligibleProducts.length}, returning ${pagedProducts.length} products (offset=${parsedOffset}, limit=${parsedLimit})`);
+        return res.json({ products: pagedProducts });
     } catch (error) {
         console.error('[get-products] error:', error);
         return res.status(500).json({ message: 'Erreur serveur interne' });
